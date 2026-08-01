@@ -1,6 +1,10 @@
 # Zig_80
 
-Zig_80 は、Z80 の命令、レジスタ、フラグ、メモリを観察しながら学べる、依存なしの CLI 開発環境です。Zig 0.16 系で動作する MVP で、アセンブラから実行・逆アセンブル・デバッグ・1bpp 描画までを一つのバイナリにまとめています。
+[日本語](README.ja.md)
+
+Zig_80 is a dependency-free CLI environment for learning about the Z80 by observing instructions, registers, flags, and memory. The current MVP targets Zig 0.16 and combines assembly, execution, disassembly, debugging, and 1bpp display output in a single binary.
+
+For the project's principles, long-term direction, and possible path toward physical hardware, see [Vision and Architectural Direction](docs/vision.md). The future described there remains conceptual and is not a delivery commitment.
 
 ## Build and quick start
 
@@ -15,18 +19,18 @@ zig build run -- debug zig-out/pixel.bin
 zig build run -- test zig-out/pixel.bin
 ```
 
-実行には必ず命令数と T-state の既定上限があります。`run` では `--max-instructions N`、`--max-cycles N` で変更できます。`--screen` は終了時の画面を表示します。
+Execution always has default instruction and T-state limits. Use `--max-instructions N` and `--max-cycles N` with `run` to change them. `--screen` renders the display when execution stops.
 
 ## Commands
 
-- `asm source.asm -o program.bin`: 2パスでアセンブルし、バイナリとシンボル一覧を出力
-- `run program.bin`: HALT または上限まで実行
-- `disasm program.bin`: アドレス、バイト列、命令を表示。未知命令は `DB`
-- `debug program.bin`: 行単位 REPL。`help` でコマンド一覧を表示
-- `test program.bin`: 最大100,000命令以内に HALT することを検証する簡易プログラムテスト
-- `explain source.asm`: 各出力命令のエンコードを短く表示
+- `asm source.asm -o program.bin`: assemble in two passes and print the generated binary and symbol list
+- `run program.bin`: execute until HALT or a configured limit
+- `disasm program.bin`: show addresses, encoded bytes, and instructions; unknown opcodes appear as `DB`
+- `debug program.bin`: start the line-oriented REPL; enter `help` for its commands
+- `test program.bin`: perform a basic check that the program reaches HALT within 100,000 instructions
+- `explain source.asm`: show a concise view of each encoded instruction
 
-デバッガーは `step/s`、`continue/c`、`registers/r`、`memory/m`、`disasm`、`break`、`delete`、`input`、`screen`、`reset`、`quit/q` に対応します。`input 0x11` のように入力レジスタを直接設定できます。
+The debugger supports `step/s`, `continue/c`, `registers/r`, `memory/m`, `disasm`, `break`, `delete`, `input`, `screen`, `reset`, and `quit/q`. An input register value can be assigned directly with a command such as `input 0x11`.
 
 ## Virtual machine
 
@@ -40,27 +44,27 @@ zig build run -- test zig-out/pixel.bin
 | `C403` | pseudo-random value |
 | `C404-FFFF` | reserved RAM |
 
-画面は 128×64、1bpp です。`C000 + (y / 8) * 128 + x` の bit `y % 8` が1ピクセルで、SSD1306に近いページ配置です。端末では上下2ピクセルを Unicode ブロック1文字へまとめます。入力は bit 0から順に Up、Down、Left、Right、A、B、Start、Reserved です。
+The display is 128×64 at 1bpp. Bit `y % 8` at `C000 + (y / 8) * 128 + x` represents one pixel, using a page layout similar to the SSD1306. The terminal renderer combines two vertical pixels into one Unicode block character. Input bits 0 through 7 represent Up, Down, Left, Right, A, B, Start, and Reserved.
 
 ## Assembly syntax
 
-ラベル、前方参照、`;` コメント、10進 (`42`)、16進 (`0x2A`)、2進 (`0b101010`)、文字 (`'A'`)、現在アドレス (`$`)、単純な `+`/`-` 式に対応します。ディレクティブは `org`、`db`、`dw`、`equ` です。`db "HELLO", 0` も使用できます。複数セグメント形式ではなく、`org` は論理アドレスを変更し、出力ファイルへパディングしません。
+The assembler supports labels, forward references, `;` comments, decimal (`42`), hexadecimal (`0x2A`), binary (`0b101010`), characters (`'A'`), the current address (`$`), and simple `+`/`-` expressions. Its directives are `org`, `db`, `dw`, and `equ`; strings can be emitted with syntax such as `db "HELLO", 0`. `org` changes the logical address and does not add padding to the output file.
 
-対応命令は NOP、HALT、JP、条件 JP (Z/NZ)、JR、条件 JR (Z/NZ)、CALL、RET、仕様書記載の8/16ビット LD、INC/DEC、ADD A、SUB、CP、AF/BC/DE/HL の PUSH/POP です。算術命令は S/Z/H/PV/N/C を更新し、INC/DEC は C を保存します。
+Supported instructions are NOP, HALT, JP, conditional JP (Z/NZ), JR, conditional JR (Z/NZ), CALL, RET, the MVP's 8-bit and 16-bit LD forms, INC/DEC, ADD A, SUB, CP, and PUSH/POP for AF/BC/DE/HL. Arithmetic updates S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
 
 ## Architecture
 
-- CPU: fetch → decode → execute → registers/flags 更新 → T-state を `StepResult` で返却。端末やファイルには依存しません。
-- Bus: 64KB アドレス空間への8/16ビットアクセスと将来の I/O 境界。16ビット値はリトルエンディアンで `FFFF` から `0000` へラップします。
-- Machine: CPU、Bus、メモリマップ、VRAM、入力、フレーム／疑似乱数レジスタを統合します。
-- Frontend: CLI、画面レンダラー、逆アセンブラ、REPLデバッガーです。
+- CPU: fetch → decode → execute → update registers/flags → return T-states in `StepResult`. It does not depend on files or terminal I/O.
+- Bus: provides 8-bit and 16-bit access to a 64KB address space and a boundary for future I/O. Words are little endian and wrap from `FFFF` to `0000`.
+- Machine: integrates the CPU, Bus, memory map, VRAM, input, frame counter, and pseudo-random register.
+- Frontend: contains the CLI, screen renderer, disassembler, and REPL debugger.
 
-アセンブラの Pass 1 は行を解析してアドレスを計算しシンボルを収集します。Pass 2 はシンボルを解決して命令をエンコードし、バイト列とソース行対応を生成します。
+Assembler Pass 1 parses lines, calculates addresses, and collects symbols. Pass 2 resolves those symbols, encodes instructions, and produces bytes and source-line mappings.
 
-新しい命令は CPU の opcode family、アセンブラの encoder、逆アセンブラへ追加します。固定命令の共有メタデータは `src/cpu/instruction.zig` にあり、今後対応範囲を広げる際の統合点です。周辺機器は Bus の予約アドレスと Machine の同期処理を追加し、CPU へデバイス依存を持ち込まないでください。
+New instructions currently require corresponding additions to the CPU opcode family, assembler encoder, and disassembler. Shared metadata for fixed instructions lives in `src/cpu/instruction.zig` and is an integration point for future expansion. New peripherals should extend reserved Bus addresses and Machine synchronization without introducing device dependencies into the CPU.
 
 ## Current limitations and roadmap
 
-MVP は Z80 全命令、CB/DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。ROM 範囲は現在書き込み保護されません。画面は実行終了時またはデバッガーで明示表示し、非TTY向け ANSI 更新は行いません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
+The MVP does not support the complete Z80 instruction set, CB/DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The ROM range is not currently write-protected. The screen is rendered explicitly at program termination or from the debugger, without ANSI animation in non-TTY output. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
 
-次の優先事項は、命令メタデータの共有範囲拡大、詳細なテスト定義形式、ウォッチポイント、非ブロッキング実時間入力、CB prefix の順です。
+Likely next areas include broader shared instruction metadata, a detailed program-test format, watchpoints, non-blocking real-time input, and CB-prefixed instructions.
