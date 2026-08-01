@@ -10,6 +10,8 @@ pub const Cpu = struct {
     halted: bool = false,
     last_unknown_pc: u16 = 0,
     last_unknown_opcode: u8 = 0,
+    instruction_index: u64 = 0,
+    total_t_states: u64 = 0,
 
     pub fn reset(self: *Cpu) void {
         self.* = .{};
@@ -18,7 +20,9 @@ pub const Cpu = struct {
     pub fn step(self: *Cpu, bus: *Bus) CpuError!StepResult {
         const before = self.registers.pc;
         if (self.halted) return result(self, before, 0x76, 4);
-        const op = self.fetch8(bus);
+        bus.beginInstruction(self.instruction_index, self.total_t_states, before);
+        const op = bus.readOpcode(self.registers.pc);
+        self.registers.pc +%= 1;
         const cycles: u16 = switch (op) {
             0x00 => 4,
             0x76 => blk: {
@@ -37,7 +41,7 @@ pub const Cpu = struct {
             0x21 => self.ld16(bus, .hl),
             0x31 => self.ld16(bus, .sp),
             0x7e => blk: {
-                self.registers.a = bus.read8(self.registers.hl());
+                self.registers.a = bus.readData8(self.registers.hl());
                 break :blk 7;
             },
             0x77 => blk: {
@@ -49,19 +53,24 @@ pub const Cpu = struct {
                 break :blk 10;
             },
             0x3a => blk: {
-                self.registers.a = bus.read8(self.fetch16(bus));
+                const address = self.fetch16(bus);
+                self.registers.a = bus.readData8(address);
                 break :blk 13;
             },
             0x32 => blk: {
-                bus.write8(self.fetch16(bus), self.registers.a);
+                const address = self.fetch16(bus);
+                bus.write8(address, self.registers.a);
                 break :blk 13;
             },
             0x2a => blk: {
-                self.registers.setHL(bus.read16(self.fetch16(bus)));
+                const address = self.fetch16(bus);
+                const value = @as(u16, bus.readData8(address)) | (@as(u16, bus.readData8(address +% 1)) << 8);
+                self.registers.setHL(value);
                 break :blk 16;
             },
             0x22 => blk: {
-                bus.write16(self.fetch16(bus), self.registers.hl());
+                const address = self.fetch16(bus);
+                bus.write16(address, self.registers.hl());
                 break :blk 16;
             },
             0x3c => self.inc(&self.registers.a),
@@ -126,6 +135,8 @@ pub const Cpu = struct {
                 return error.UnknownOpcode;
             },
         };
+        self.instruction_index +%= 1;
+        self.total_t_states +%= cycles;
         return result(self, before, op, cycles);
     }
 
@@ -134,12 +145,12 @@ pub const Cpu = struct {
         return .{ .pc_before = before, .pc_after = self.registers.pc, .opcode = op, .t_states = cycles, .halted = self.halted };
     }
     fn fetch8(self: *Cpu, bus: *Bus) u8 {
-        const v = bus.read8(self.registers.pc);
+        const v = bus.readOperand8(self.registers.pc);
         self.registers.pc +%= 1;
         return v;
     }
     fn fetch16(self: *Cpu, bus: *Bus) u16 {
-        const v = bus.read16(self.registers.pc);
+        const v = bus.readOperand16(self.registers.pc);
         self.registers.pc +%= 2;
         return v;
     }
@@ -213,7 +224,7 @@ pub const Cpu = struct {
         bus.write16(self.registers.sp, v);
     }
     fn pop(self: *Cpu, bus: *Bus) u16 {
-        const v = bus.read16(self.registers.sp);
+        const v = @as(u16, bus.readData8(self.registers.sp)) | (@as(u16, bus.readData8(self.registers.sp +% 1)) << 8);
         self.registers.sp +%= 2;
         return v;
     }
