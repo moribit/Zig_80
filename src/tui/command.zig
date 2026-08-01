@@ -18,7 +18,10 @@ pub const Command = union(enum) {
     toggle_breakpoint,
     switch_screen: Screen,
     show_help,
+    open_palette,
     quit,
+    tab,
+    cancel,
     none,
 };
 
@@ -32,7 +35,7 @@ pub fn map(event: key.KeyEvent) Command {
                 'a' => .assemble,
                 'g' => .run,
                 'n' => .step_instruction,
-                'p' => .pause,
+                'p' => .open_palette,
                 'e' => .continue_execution,
                 'b' => .toggle_breakpoint,
                 else => .none,
@@ -62,6 +65,7 @@ pub fn map(event: key.KeyEvent) Command {
             9 => .toggle_breakpoint,
             else => .none,
         },
-        .escape, .tab => return .none,
+        .escape => return .cancel,
+        .tab => return .tab,
     }
 }

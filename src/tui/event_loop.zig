@@ -20,8 +20,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, state: *AppState, color: bo
     defer output.deinit(allocator);
     try output.ensureTotalCapacity(allocator, size.width * size.height / 2);
     var input_buffer: [128]u8 = undefined;
+    var decoder: input.InputDecoder = .{};
 
     while (!state.quit_requested) {
+        const frame_now_ms: i64 = @intCast(@divTrunc(std.Io.Clock.awake.now(io).nanoseconds, std.time.ns_per_ms));
+        state.tickUi(frame_now_ms);
         if (state.execution_state == .running) state.runSlice(500);
         const new_size = terminal.getSize(io) catch size;
         if (new_size.width != size.width or new_size.height != size.height) {
@@ -41,12 +44,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, state: *AppState, color: bo
         has_previous = true;
 
         const count = try terminal.readInput(&input_buffer, 16);
-        var offset: usize = 0;
-        while (offset < count) {
-            const decoded = input.decodeOne(input_buffer[offset..count]) orelse break;
-            const action = command.map(decoded.event);
+        decoder.feed(input_buffer[0..count]);
+        const now_ms: i64 = @intCast(@divTrunc(std.Io.Clock.awake.now(io).nanoseconds, std.time.ns_per_ms));
+        while (decoder.next(now_ms)) |event| {
+            const action = command.map(event);
             state.apply(action, io) catch |err| state.setStatus("Command failed: {s}", .{@errorName(err)});
-            offset += decoded.consumed;
         }
     }
 }

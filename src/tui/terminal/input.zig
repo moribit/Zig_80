@@ -1,31 +1,115 @@
 const std = @import("std");
 const key = @import("key.zig");
 
+pub const escape_timeout_ms: i64 = 30;
 pub const DecodedInput = struct { event: key.KeyEvent, consumed: usize };
 
-pub fn decodeOne(bytes: []const u8) ?DecodedInput {
-    if (bytes.len == 0) return null;
-    if (bytes[0] != 0x1b) {
-        const consumed: usize = if (bytes[0] < 0x80) 1 else std.unicode.utf8ByteSequenceLength(bytes[0]) catch return null;
-        if (bytes.len < consumed) return null;
-        return .{ .event = decode(bytes[0..consumed]) orelse return null, .consumed = consumed };
+/// Allocation-free terminal input stream decoder. Incomplete UTF-8 and escape
+/// sequences remain buffered across reads.
+pub const InputDecoder = struct {
+    buffer: [256]u8 = undefined,
+    len: usize = 0,
+    escape_pending_since: ?i64 = null,
+
+    pub fn feed(self: *InputDecoder, bytes: []const u8) void {
+        if (bytes.len > self.buffer.len) {
+            // Drop the overlong prefix and retain a useful, bounded suffix.
+            const tail = bytes[bytes.len - self.buffer.len ..];
+            @memcpy(&self.buffer, tail);
+            self.len = tail.len;
+            self.escape_pending_since = null;
+            return;
+        }
+        if (self.len + bytes.len > self.buffer.len) {
+            // Existing input cannot be a valid bounded event. Recover at the
+            // next feed boundary instead of overwriting memory.
+            self.len = 0;
+            self.escape_pending_since = null;
+        }
+        @memcpy(self.buffer[self.len..][0..bytes.len], bytes);
+        self.len += bytes.len;
     }
-    if (bytes.len == 1) return .{ .event = .{ .code = .escape }, .consumed = 1 };
+
+    pub fn next(self: *InputDecoder, now_ms: i64) ?key.KeyEvent {
+        while (self.len > 0) {
+            if (self.buffer[0] == 0x1b and self.escape_pending_since != null and now_ms - self.escape_pending_since.? >= escape_timeout_ms) {
+                self.consume(1);
+                return .{ .code = .escape };
+            }
+            if (self.buffer[0] == 0x1b and self.len == 1) {
+                if (self.escape_pending_since == null) self.escape_pending_since = now_ms;
+                if (now_ms - self.escape_pending_since.? < escape_timeout_ms) return null;
+                self.consume(1);
+                return .{ .code = .escape };
+            }
+            const parsed = parseOne(self.buffer[0..self.len]);
+            switch (parsed) {
+                .incomplete => return null,
+                .invalid => |consumed| {
+                    self.consume(consumed);
+                    continue;
+                },
+                .event => |decoded| {
+                    self.consume(decoded.consumed);
+                    return decoded.event;
+                },
+            }
+        }
+        return null;
+    }
+
+    fn consume(self: *InputDecoder, count: usize) void {
+        const remaining = self.len - @min(count, self.len);
+        std.mem.copyForwards(u8, self.buffer[0..remaining], self.buffer[count..self.len]);
+        self.len = remaining;
+        self.escape_pending_since = null;
+    }
+};
+
+const ParseResult = union(enum) { event: DecodedInput, incomplete, invalid: usize };
+
+fn parseOne(bytes: []const u8) ParseResult {
+    if (bytes.len == 0) return .incomplete;
+    if (bytes[0] != 0x1b) return parsePlain(bytes);
+    if (bytes.len == 1) return .incomplete;
     if (bytes[1] != '[' and bytes[1] != 'O') {
-        const nested = decodeOne(bytes[1..]) orelse return null;
-        var event = nested.event;
-        event.alt = true;
-        return .{ .event = event, .consumed = nested.consumed + 1 };
+        const nested = parsePlain(bytes[1..]);
+        return switch (nested) {
+            .event => |decoded| blk: {
+                var event = decoded.event;
+                event.alt = true;
+                break :blk .{ .event = .{ .event = event, .consumed = decoded.consumed + 1 } };
+            },
+            .incomplete => .incomplete,
+            .invalid => |count| .{ .invalid = count + 1 },
+        };
     }
     var end: usize = 2;
     while (end < bytes.len) : (end += 1) {
         const byte = bytes[end];
-        if ((byte >= 'A' and byte <= 'Z') or byte == '~') {
+        if (byte >= 0x40 and byte <= 0x7e) {
             const consumed = end + 1;
-            return .{ .event = decode(bytes[0..consumed]) orelse return null, .consumed = consumed };
+            if (decode(bytes[0..consumed])) |event| return .{ .event = .{ .event = event, .consumed = consumed } };
+            // A complete but unknown sequence is discarded; subsequent input
+            // remains available to the caller.
+            return .{ .invalid = consumed };
         }
     }
-    return null;
+    return if (bytes.len == 256) .{ .invalid = 1 } else .incomplete;
+}
+
+fn parsePlain(bytes: []const u8) ParseResult {
+    const length: usize = if (bytes[0] < 0x80) 1 else std.unicode.utf8ByteSequenceLength(bytes[0]) catch return .{ .invalid = 1 };
+    if (bytes.len < length) return .incomplete;
+    const event = decode(bytes[0..length]) orelse return .{ .invalid = 1 };
+    return .{ .event = .{ .event = event, .consumed = length } };
+}
+
+pub fn decodeOne(bytes: []const u8) ?DecodedInput {
+    return switch (parseOne(bytes)) {
+        .event => |event| event,
+        else => null,
+    };
 }
 
 pub fn decode(bytes: []const u8) ?key.KeyEvent {
@@ -33,7 +117,7 @@ pub fn decode(bytes: []const u8) ?key.KeyEvent {
     if (bytes[0] == 0x1b) {
         if (bytes.len == 1) return .{ .code = .escape };
         if (bytes[1] != '[' and bytes[1] != 'O') {
-            const nested = decode(bytes[1..]) orelse return .{ .code = .escape };
+            const nested = decode(bytes[1..]) orelse return null;
             return .{ .code = nested.code, .ctrl = nested.ctrl, .alt = true, .shift = nested.shift };
         }
         const sequence = bytes[1..];

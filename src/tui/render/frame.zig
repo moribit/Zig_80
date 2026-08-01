@@ -7,6 +7,7 @@ pub const Frame = struct {
     height: usize,
     cells: []Cell,
     allocator: std.mem.Allocator,
+    unicode: bool = true,
 
     pub fn init(allocator: std.mem.Allocator, width: usize, height: usize) !Frame {
         const cells = try allocator.alloc(Cell, width * height);
@@ -57,18 +58,66 @@ pub const Frame = struct {
 
     pub fn box(self: *Frame, x: usize, y: usize, width: usize, height: usize, title: []const u8, style: Style) void {
         if (width < 2 or height < 2) return;
-        for (x..@min(x + width, self.width)) |column| {
-            self.set(column, y, '-', style);
-            self.set(column, y + height - 1, '-', style);
+        for (x + 1..@min(x + width - 1, self.width)) |column| {
+            self.addBorder(column, y, 0b0011, style);
+            self.addBorder(column, y + height - 1, 0b0011, style);
         }
-        for (y..@min(y + height, self.height)) |row| {
-            self.set(x, row, '|', style);
-            self.set(x + width - 1, row, '|', style);
+        for (y + 1..@min(y + height - 1, self.height)) |row| {
+            self.addBorder(x, row, 0b1100, style);
+            self.addBorder(x + width - 1, row, 0b1100, style);
         }
-        self.set(x, y, '+', style);
-        self.set(x + width - 1, y, '+', style);
-        self.set(x, y + height - 1, '+', style);
-        self.set(x + width - 1, y + height - 1, '+', style);
+        self.addBorder(x, y, 0b1010, style);
+        self.addBorder(x + width - 1, y, 0b1001, style);
+        self.addBorder(x, y + height - 1, 0b0110, style);
+        self.addBorder(x + width - 1, y + height - 1, 0b0101, style);
         if (title.len > 0 and width > 4) self.writeText(x + 2, y, title, style);
     }
+
+    /// Adds line directions to an existing border cell, producing junctions
+    /// when adjacent panes share an edge. Bits are left/right/up/down.
+    fn addBorder(self: *Frame, x: usize, y: usize, directions: u4, style: Style) void {
+        if (x >= self.width or y >= self.height) return;
+        const combined = borderMask(self.get(x, y).codepoint) | directions;
+        self.set(x, y, if (self.unicode) unicodeBorder(combined) else asciiBorder(combined), style);
+    }
 };
+
+fn borderMask(codepoint: u21) u4 {
+    return switch (codepoint) {
+        '─', '-' => 0b0011,
+        '│', '|' => 0b1100,
+        '┌' => 0b1010,
+        '┐' => 0b1001,
+        '└' => 0b0110,
+        '┘' => 0b0101,
+        '┬' => 0b1011,
+        '┴' => 0b0111,
+        '├' => 0b1110,
+        '┤' => 0b1101,
+        '┼', '+' => 0b1111,
+        else => 0,
+    };
+}
+
+fn unicodeBorder(mask: u4) u21 {
+    return switch (mask) {
+        0b0011 => '─',
+        0b1100 => '│',
+        0b1010 => '┌',
+        0b1001 => '┐',
+        0b0110 => '└',
+        0b0101 => '┘',
+        0b1011 => '┬',
+        0b0111 => '┴',
+        0b1110 => '├',
+        0b1101 => '┤',
+        0b1111 => '┼',
+        else => ' ',
+    };
+}
+
+fn asciiBorder(mask: u4) u21 {
+    if (mask == 0b0011) return '-';
+    if (mask == 0b1100) return '|';
+    return '+';
+}

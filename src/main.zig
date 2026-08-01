@@ -62,6 +62,8 @@ fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
     var state = try TuiState.init(allocator, path, source);
     defer state.deinit();
     state.attachTrace();
+    const locale = environ.get("LC_ALL") orelse environ.get("LC_CTYPE") orelse environ.get("LANG") orelse "";
+    state.unicode_ui = std.mem.indexOf(u8, locale, "UTF-8") != null or std.mem.indexOf(u8, locale, "utf-8") != null or std.mem.indexOf(u8, locale, "UTF8") != null or std.mem.indexOf(u8, locale, "utf8") != null;
     out.flush() catch {};
     errout.flush() catch {};
     const color = environ.get("NO_COLOR") == null and !(if (environ.get("TERM")) |term| std.mem.eql(u8, term, "dumb") else false);
@@ -84,8 +86,16 @@ fn asmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         return error.InvalidArguments;
     }
     const source = try Io.Dir.cwd().readFileAlloc(io, args[0], allocator, .limited(1024 * 1024));
-    var assembled = assembler.assemble(allocator, source) catch |e| {
-        try errout.print("{s}: error: {s}\n", .{ args[0], diagnostics.message(e) });
+    var failure: assembler.FailureLocation = .{};
+    var assembled = assembler.assembleLocated(allocator, source, &failure) catch |e| {
+        const diagnostic = diagnostics.fromFailure(failure, args[0]);
+        try errout.print("{s}:{d}:{d}: error: {s}\n", .{ args[0], diagnostic.line orelse 0, diagnostic.column orelse 0, diagnostic.message });
+        if (diagnostic.source_line) |line| {
+            try errout.print("    {s}\n    ", .{line});
+            for (1..diagnostic.column orelse 1) |_| try errout.writeByte(' ');
+            try errout.writeAll("^\n");
+        }
+        if (diagnostic.hint) |hint| try errout.print("hint: {s}\n", .{hint});
         return e;
     };
     defer assembled.deinit();
