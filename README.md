@@ -27,7 +27,17 @@ Open the dependency-free terminal frontend with an optional assembly source:
 zig build run -- tui examples/pixel.asm
 ```
 
-The TUI auto-assembles a loaded source, then relates source addresses and bytes, current PC, register changes, instruction details, and logical Bus accesses in one IDE-style view. Pane focus changes context help; Ctrl+P opens a small command palette. The Bus view places instruction-grouped events beside an equal-width logical waveform. The waveform is not cycle-accurate. Toasts and the high-density status bar report actions and execution state without bypassing differential rendering. See [TUI Guide](docs/tui.md) for details.
+For a program that does not immediately HALT, open the autonomous Pinpon demo:
+
+```console
+zig build run -- tui examples/pinpon.asm
+```
+
+Press `Ctrl+E` to run, then use `Ctrl+5` or the Command Palette's `display` action to watch the ball bounce between fixed paddles. Press Escape to pause. The demo intentionally loops forever; TUI execution limits still provide a safety stop.
+
+The source-first TUI gives the editor roughly 70% of the normal layout, then relates source addresses and bytes, current PC, compact vertical CPU and Instruction cards, and logical Bus accesses. Pane focus changes context help; Ctrl+P opens the command-centered palette, with no Function-key bindings. The Bus view places instruction-grouped events beside an equal-width logical waveform. The waveform is not cycle-accurate. Toasts and the badge-style status bar report actions and execution state without bypassing differential rendering. See [TUI Guide](docs/tui.md) for details.
+
+The Source pane is Z80-aware rather than a general text editor: cached syntax tokens drive contextual mnemonic, register, directive, operand, and source-label completion; it also provides indentation, selection, Undo/Redo, incremental search, label navigation and rename, inline diagnostics and bytes, and short-lived overlays of actual Step results.
 
 TUI Run and Continue stop at default totals of 10,000,000 instructions or 100,000,000 T-states. Reset clears both totals; an explicit Step remains available after a limit stop.
 
