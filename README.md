@@ -27,7 +27,9 @@ Open the dependency-free terminal frontend with an optional assembly source:
 zig build run -- tui examples/pixel.asm
 ```
 
-The TUI edits and saves source, invokes the same assembler API as the CLI, runs or steps the shared Machine, and presents CPU state, memory, the virtual display, breakpoints, diagnostics, and logical Bus Trace events. It requires an interactive ANSI/VT100-compatible terminal on macOS or Linux; a non-TTY invocation fails without emitting control sequences. See [TUI Guide](docs/tui.md) for the layout, keys, trace accuracy, and current limitations.
+The TUI auto-assembles a loaded source, then relates source addresses and bytes, current PC, register changes, instruction details, and logical Bus accesses in one IDE-style view. Pane focus changes context help; Ctrl+P opens a small command palette. The Bus view places instruction-grouped events beside an equal-width logical waveform. The waveform is not cycle-accurate. Toasts and the high-density status bar report actions and execution state without bypassing differential rendering. See [TUI Guide](docs/tui.md) for details.
+
+TUI Run and Continue stop at default totals of 10,000,000 instructions or 100,000,000 T-states. Reset clears both totals; an explicit Step remains available after a limit stop.
 
 Execution always has default instruction and T-state limits. Use `--max-instructions N` and `--max-cycles N` with `run` to change them. `--screen` renders the display when execution stops.
 

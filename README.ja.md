@@ -27,7 +27,9 @@ zig build run -- test zig-out/pixel.bin
 zig build run -- tui examples/pixel.asm
 ```
 
-TUIではソースの編集と保存、CLIと共通のAPIによるアセンブル、共通Machineの実行とステップ、CPU状態、メモリ、仮想画面、ブレークポイント、診断、論理Bus Traceイベントの表示ができます。macOSまたはLinux上の対話的なANSI/VT100互換端末が必要です。非TTYでは制御シーケンスを出力せず終了します。画面構成、キー、Trace精度、制限は[TUIガイド](docs/tui.ja.md)を参照してください。
+TUIは読み込んだソースを自動アセンブルし、ソースのAddress/Bytes、現在PC、レジスタ差分、命令詳細、論理Busアクセスを一つのIDE風画面で関連付けます。Pane Focusに応じてContext Helpが変化し、Ctrl+Pで小さなCommand Paletteを開けます。Bus画面は命令単位にまとめたEventと等幅のLogical Waveformを横に表示します。この波形はcycle-accurateではありません。Toastと高密度Status Barも差分描画を経由して操作結果と実行状態を伝えます。詳細は[TUIガイド](docs/tui.ja.md)を参照してください。
+
+TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100,000,000へ達すると停止します。Resetは両カウンターを消去し、上限停止後も明示的なStepは実行できます。
 
 実行には必ず命令数と T-state の既定上限があります。`run` では `--max-instructions N`、`--max-cycles N` で変更できます。`--screen` は終了時の画面を表示します。
 
