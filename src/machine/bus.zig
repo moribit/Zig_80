@@ -7,11 +7,13 @@ pub const Bus = struct {
     instruction_index: u64 = 0,
     instruction_t_state: u64 = 0,
     instruction_pc: u16 = 0,
+    event_index_in_instruction: u8 = 0,
 
     pub fn beginInstruction(self: *Bus, index: u64, t_state: u64, pc: u16) void {
         self.instruction_index = index;
         self.instruction_t_state = t_state;
         self.instruction_pc = pc;
+        self.event_index_in_instruction = 0;
     }
 
     pub fn readOpcode(self: *Bus, address: u16) u8 {
@@ -61,6 +63,7 @@ pub const Bus = struct {
         sink.record(.{
             .sequence = self.trace_sequence,
             .instruction_index = self.instruction_index,
+            .event_index_in_instruction = self.event_index_in_instruction,
             .t_state_start = self.instruction_t_state,
             .kind = kind,
             .address = address,
@@ -69,5 +72,6 @@ pub const Bus = struct {
             .pc = self.instruction_pc,
         });
         self.trace_sequence +%= 1;
+        self.event_index_in_instruction +|= 1;
     }
 };

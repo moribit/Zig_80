@@ -25,6 +25,8 @@ pub const BusSignals = packed struct {
 pub const BusEvent = struct {
     sequence: u64,
     instruction_index: u64,
+    /// Logical ordering of this access within its instruction.
+    event_index_in_instruction: u8 = 0,
     t_state_start: u64,
     /// Zero means that this access is logically modeled, not cycle-accurate.
     t_state_count: u16 = 0,
@@ -68,8 +70,13 @@ pub fn RingBuffer(comptime capacity: usize) type {
         }
 
         pub fn get(self: *const Self, index: usize) ?BusEvent {
+            const event = self.getPtr(index) orelse return null;
+            return event.*;
+        }
+
+        pub fn getPtr(self: *const Self, index: usize) ?*const BusEvent {
             if (index >= self.len or capacity == 0) return null;
-            return self.events[(self.start + index) % capacity];
+            return &self.events[(self.start + index) % capacity];
         }
 
         pub fn latest(self: *const Self) ?BusEvent {
