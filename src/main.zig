@@ -6,6 +6,8 @@ const disassembler = @import("disassembler/disassembler.zig");
 const Machine = @import("machine/machine.zig").Machine;
 const video = @import("machine/video.zig");
 const debugger = @import("debugger/debugger.zig");
+const TuiState = @import("tui/state.zig").AppState;
+const tui_event_loop = @import("tui/event_loop.zig");
 
 const usage =
     \\Zig_80 - educational Z80 development environment
@@ -17,6 +19,7 @@ const usage =
     \\  zig80 disasm <program.bin>
     \\  zig80 test <program.bin>
     \\  zig80 explain <source.asm>
+    \\  zig80 tui [source.asm]
     \\  zig80 --help
     \\
 ;
@@ -38,10 +41,37 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     const command = args[1];
-    if (std.mem.eql(u8, command, "asm")) try asmCommand(io, allocator, args[2..], out, errout) else if (std.mem.eql(u8, command, "run")) try runCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "disasm")) try disasmCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "debug")) try debugCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "test")) try testCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "explain")) try explainCommand(io, allocator, args[2..], out) else {
+    if (std.mem.eql(u8, command, "asm")) try asmCommand(io, allocator, args[2..], out, errout) else if (std.mem.eql(u8, command, "run")) try runCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "disasm")) try disasmCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "debug")) try debugCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "test")) try testCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "explain")) try explainCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "tui")) try tuiCommand(io, allocator, args[2..], out, errout, init.environ_map) else {
         try errout.print("unknown command: {s}\n\n{s}", .{ command, usage });
         return error.InvalidCommand;
     }
+}
+
+fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, out: *Io.Writer, errout: *Io.Writer, environ: *std.process.Environ.Map) !void {
+    if (args.len > 1) {
+        try errout.writeAll("usage: zig80 tui [source.asm]\n");
+        return error.InvalidArguments;
+    }
+    if (!try Io.File.stdin().isTty(io) or !try Io.File.stdout().isTty(io)) {
+        try errout.writeAll("error: `zig80 tui` requires an interactive stdin and stdout TTY\n");
+        try errout.flush();
+        std.process.exit(1);
+    }
+    const path: ?[]const u8 = if (args.len == 1) args[0] else null;
+    const source = if (path) |value| try Io.Dir.cwd().readFileAlloc(io, value, allocator, .limited(1024 * 1024)) else "";
+    var state = try TuiState.init(allocator, path, source);
+    defer state.deinit();
+    state.attachTrace();
+    out.flush() catch {};
+    errout.flush() catch {};
+    const color = environ.get("NO_COLOR") == null and !(if (environ.get("TERM")) |term| std.mem.eql(u8, term, "dumb") else false);
+    tui_event_loop.run(io, allocator, &state, color) catch |err| switch (err) {
+        error.NotATerminal => {
+            try errout.writeAll("error: `zig80 tui` requires an interactive stdin and stdout TTY\n");
+            return;
+        },
+        else => return err,
+    };
 }
 
 fn readFile(io: Io, allocator: std.mem.Allocator, path: []const u8) ![]u8 {

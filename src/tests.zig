@@ -6,6 +6,16 @@ const flags = @import("cpu/flags.zig");
 const assembler = @import("assembler/assembler.zig");
 const disassembler = @import("disassembler/disassembler.zig");
 const video = @import("machine/video.zig");
+const trace = @import("trace/trace.zig");
+const SourceBuffer = @import("tui/editor/buffer.zig").SourceBuffer;
+const Frame = @import("tui/render/frame.zig").Frame;
+const render_diff = @import("tui/render/diff.zig");
+const input = @import("tui/terminal/input.zig");
+const command = @import("tui/command.zig");
+const Layout = @import("tui/layout.zig").Layout;
+const AppState = @import("tui/state.zig").AppState;
+const ExecutionState = @import("tui/state.zig").ExecutionState;
+const tui_app = @import("tui/app.zig");
 
 fn execute(program: []const u8) !struct { Cpu, Bus } {
     var bus = Bus{};
@@ -36,6 +46,18 @@ test "load add flags and halt" {
     try std.testing.expect(flags.isSet(state[0].registers.f, flags.C));
     try std.testing.expect(flags.isSet(state[0].registers.f, flags.H));
     try std.testing.expectEqual(@as(u16, 6), state[0].registers.pc);
+}
+test "absolute load advances PC past the 16-bit address" {
+    var bus = Bus{};
+    bus.memory[0..4].* = .{ 0x3a, 0x00, 0xc4, 0x76 };
+    bus.write8(0xc400, 0x42);
+    var cpu = Cpu{};
+    const step = try cpu.step(&bus);
+    try std.testing.expectEqual(@as(u8, 0x42), cpu.registers.a);
+    try std.testing.expectEqual(@as(u16, 3), cpu.registers.pc);
+    try std.testing.expectEqual(@as(u16, 3), step.pc_after);
+    _ = try cpu.step(&bus);
+    try std.testing.expect(cpu.halted);
 }
 test "call ret push pop and sp" {
     const state = try execute(&.{ 0x31, 0x00, 0x90, 0xcd, 0x08, 0x00, 0x76, 0x00, 0x01, 0x34, 0x12, 0xc5, 0x01, 0, 0, 0xc1, 0xc9 });
@@ -90,4 +112,172 @@ test "machine load devices and video" {
     try std.testing.expectEqual(@as(u8, 0x11), m.bus.read8(0xc400));
     m.tickFrame();
     try std.testing.expectEqual(@as(u8, 1), m.bus.read8(0xc401));
+}
+test "trace records logical opcode operand read and memory write events" {
+    var events = trace.RingBuffer(8){};
+    var bus = Bus{};
+    bus.trace_sink = events.sink();
+    bus.memory[0..6].* = .{ 0x21, 0x00, 0xc0, 0x36, 0x01, 0x76 };
+    var cpu = Cpu{};
+    _ = try cpu.step(&bus);
+    _ = try cpu.step(&bus);
+    try std.testing.expectEqual(@as(usize, 6), events.len);
+    try std.testing.expectEqual(trace.BusEventKind.opcode_fetch, events.get(0).?.kind);
+    try std.testing.expectEqual(trace.BusEventKind.operand_read, events.get(1).?.kind);
+    try std.testing.expectEqual(trace.BusEventKind.memory_write, events.latest().?.kind);
+    try std.testing.expectEqual(@as(u16, 0xc000), events.latest().?.address);
+    try std.testing.expectEqual(@as(u64, 1), events.latest().?.instruction_index);
+}
+test "trace ring buffer discards oldest events without allocation" {
+    var events = trace.RingBuffer(2){};
+    const base = trace.BusEvent{ .sequence = 0, .instruction_index = 0, .t_state_start = 0, .kind = .memory_read, .address = 0, .data = 0, .signals = .{}, .pc = 0 };
+    events.record(base);
+    var second = base;
+    second.sequence = 1;
+    events.record(second);
+    var third = base;
+    third.sequence = 2;
+    events.record(third);
+    try std.testing.expectEqual(@as(usize, 2), events.len);
+    try std.testing.expectEqual(@as(u64, 1), events.get(0).?.sequence);
+    try std.testing.expectEqual(@as(u64, 2), events.get(1).?.sequence);
+}
+test "disabled trace has no side effects or sequence updates" {
+    var bus = Bus{};
+    bus.memory[0] = 0x76;
+    var cpu = Cpu{};
+    _ = try cpu.step(&bus);
+    try std.testing.expectEqual(@as(u64, 0), bus.trace_sequence);
+}
+test "source buffer edits utf8 text and tracks cursor dirty state and scrolling" {
+    var source = try SourceBuffer.init(std.testing.allocator, "ab\ncd");
+    defer source.deinit();
+    source.moveRight();
+    try source.insert('X');
+    try std.testing.expectEqualStrings("aXb\ncd", source.text());
+    source.backspace();
+    source.moveEnd();
+    try source.newline();
+    try source.insert(0x03bb);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(source.text()));
+    source.moveLeft();
+    source.delete();
+    try std.testing.expectEqualStrings("ab\n\ncd", source.text());
+    source.moveDown();
+    source.ensureVisible(1, 1);
+    try std.testing.expect(source.dirty);
+    try std.testing.expect(source.scroll_y > 0);
+    try std.testing.expect(source.goToLine(0));
+    try std.testing.expectEqual(@as(usize, 0), source.cursor);
+}
+test "input decoder and keymap recognize terminal sequences and alternatives" {
+    const up = input.decode("\x1b[A").?;
+    try std.testing.expect(up.code == .up);
+    const assemble = command.map(input.decode("\x1bOQ").?);
+    try std.testing.expect(assemble == .assemble);
+    const save = command.map(input.decode(&.{19}).?);
+    try std.testing.expect(save == .save);
+    const bus_screen = command.map(input.decode("\x1b4").?);
+    try std.testing.expect(bus_screen == .switch_screen);
+    try std.testing.expectEqual(command.Screen.bus, bus_screen.switch_screen);
+    try std.testing.expect(command.map(.{ .code = .tab }) == .none);
+}
+test "frame clips content and diff emits only changes" {
+    var old = try Frame.init(std.testing.allocator, 8, 2);
+    defer old.deinit();
+    var next = try Frame.init(std.testing.allocator, 8, 2);
+    defer next.deinit();
+    next.writeText(1, 0, "CPU", .{ .bold = true });
+    next.writeText(7, 1, "XY", .{});
+    try std.testing.expectEqual(@as(u21, 'C'), next.get(1, 0).codepoint);
+    try std.testing.expectEqual(@as(u21, 'X'), next.get(7, 1).codepoint);
+    var output: std.ArrayList(u8) = .empty;
+    defer output.deinit(std.testing.allocator);
+    try render_diff.render(std.testing.allocator, &output, &old, &next, false);
+    try std.testing.expect(std.mem.indexOf(u8, output.items, "CPU") == null); // changed cells have cursor moves between them
+    try std.testing.expect(std.mem.indexOf(u8, output.items, "\x1b[1;2H") != null);
+    old.cells[1] = next.cells[1];
+    try render_diff.render(std.testing.allocator, &output, &old, &next, false);
+    try std.testing.expect(std.mem.indexOf(u8, output.items, "\x1b[1;2H") == null);
+}
+test "layout supports normal and compact terminals" {
+    const normal = Layout.calculate(120, 40);
+    try std.testing.expect(!normal.compact);
+    try std.testing.expectEqual(@as(usize, 72), normal.source.width);
+    const compact = Layout.calculate(62, 18);
+    try std.testing.expect(compact.compact);
+    try std.testing.expectEqual(@as(usize, 17), compact.status.y);
+}
+test "app state assembles steps synchronizes source and resets" {
+    var state = try AppState.init(std.testing.allocator, "test.asm", "org 0\nld hl, 0xC000\nld (hl), 1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.assemble();
+    try std.testing.expectEqual(ExecutionState.assembled, state.execution_state);
+    try std.testing.expectEqual(@as(?usize, 2), state.sourceLineForPC(0));
+    state.step();
+    try std.testing.expectEqual(@as(u16, 0xc000), state.machine.cpu.registers.hl());
+    try std.testing.expectEqual(ExecutionState.paused, state.execution_state);
+    state.step();
+    try std.testing.expectEqual(@as(?u16, 0xc000), state.last_memory_write);
+    state.runFromReset();
+    state.pause();
+    try std.testing.expectEqual(ExecutionState.paused, state.execution_state);
+    state.continueExecution();
+    state.runSlice(20);
+    try std.testing.expectEqual(ExecutionState.halted, state.execution_state);
+    state.reset();
+    try std.testing.expectEqual(@as(u16, 0), state.machine.cpu.registers.pc);
+}
+test "app state preserves source on assembly failure and stops at breakpoint" {
+    var invalid = try AppState.init(std.testing.allocator, null, "jp missing\n");
+    defer invalid.deinit();
+    invalid.assemble();
+    try std.testing.expectEqual(ExecutionState.faulted, invalid.execution_state);
+    try std.testing.expect(invalid.diagnostic != null);
+    try std.testing.expectEqualStrings("jp missing\n", invalid.source.text());
+
+    var state = try AppState.init(std.testing.allocator, null, "org 0\nnop\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.assemble();
+    state.source.moveDown();
+    state.toggleBreakpoint();
+    state.runFromReset();
+    state.runSlice(4);
+    try std.testing.expectEqual(ExecutionState.breakpoint, state.execution_state);
+    state.continueExecution();
+    state.runSlice(4);
+    try std.testing.expectEqual(ExecutionState.halted, state.execution_state);
+}
+test "tui app renders source cpu bus and compact views without a terminal" {
+    var state = try AppState.init(std.testing.allocator, "pixel.asm", "org 0\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.assemble();
+    state.step();
+    var normal = try Frame.init(std.testing.allocator, 100, 30);
+    defer normal.deinit();
+    tui_app.render(&state, &normal);
+    try std.testing.expectEqual(@as(u21, 'Z'), normal.get(1, 0).codepoint);
+    var compact = try Frame.init(std.testing.allocator, 60, 18);
+    defer compact.deinit();
+    state.active_screen = .display;
+    tui_app.render(&state, &compact);
+    try std.testing.expectEqual(@as(u21, '+'), compact.get(0, 2).codepoint);
+}
+test "memory accepts hexadecimal address input and bus selection jumps to source" {
+    var state = try AppState.init(std.testing.allocator, null, "org 0\nld a, 1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.assemble();
+    state.step();
+    state.active_screen = .memory;
+    for ("8120") |digit| try state.apply(.{ .insert_character = digit }, std.testing.io);
+    try std.testing.expectEqual(@as(u16, 0x8120), state.memory_address);
+    state.active_screen = .bus;
+    state.selected_trace_event = 0;
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expectEqual(command.Screen.editor, state.active_screen);
+    try std.testing.expectEqual(@as(usize, 1), state.source.lineAndColumn().line);
 }
