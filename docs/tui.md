@@ -22,12 +22,12 @@ Windows console support has a separated extension module but is not currently im
 At normal sizes the screen contains:
 
 - a command header;
-- the source editor with line numbers, current PC marker, and breakpoint marker;
-- CPU registers, flags, HALT state, T-state total, and current disassembly;
+- a source-first editor occupying roughly 70% of the normal layout, with separated gutter columns;
+- compact vertical CPU and Instruction cards;
 - a lower Bus, Memory, Display, Help, or Diagnostics panel;
 - an execution and status line.
 
-At compact sizes, `Alt+1` through `Alt+5` switch the whole content area between Editor, Debug, Memory, Bus, and Display.
+At compact sizes, `Ctrl+1` through `Ctrl+5` switch the whole content area between Source, CPU, Memory, Bus, and Display. This depends on a terminal that reports modified digits (CSI-u).
 
 Rendering uses reusable previous and next Frame Buffers. Widgets write cells only; they do not emit ANSI. The renderer compares frames, builds one buffered ANSI update, and writes only changed cells. `NO_COLOR` and `TERM=dumb` disable color. The UI uses ASCII borders and an ASCII display fallback so meaning does not depend on color or Unicode.
 
@@ -37,28 +37,52 @@ Rendering uses reusable previous and next Frame Buffers. Widgets write cells onl
 |---|---|---|
 | `Ctrl+S` | save source | — |
 | `Ctrl+Q` | quit | `Ctrl+C` |
-| `F2` | assemble | `Ctrl+A` |
-| `F5` | run from reset | `Ctrl+G` |
-| `F6` | step one instruction | `Ctrl+N` |
-| `F7` | continue | `Ctrl+E` |
-| `F8` | pause | — |
-| `F9` | toggle source breakpoint | `Ctrl+B` |
-| `Ctrl+R` | reset | — |
-| `Ctrl+P` | command palette | — |
-| `Alt+1..5` | Editor, Debug, Memory, Bus, Display | — |
-| `?` / `F1` | help | — |
+| `Ctrl+R` | assemble | palette: `assemble` |
+| `Ctrl+E` | run from reset | palette: `run` |
+| `Ctrl+T` | step one instruction | palette: `step` |
+| `Ctrl+Space` | continue | palette: `continue` |
+| `Esc` | pause | cancels an active input mode first |
+| `Ctrl+B` | toggle source breakpoint | `b` outside Source |
+| `Ctrl+P` | command palette | `:` outside Source |
+| `Tab` / `Shift+Tab` | indent / unindent in Source | next / previous pane elsewhere |
+| `Ctrl+1..5` | Source, CPU, Memory, Bus, Display | — |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo | — |
+| `Ctrl+F` | incremental literal search | — |
+| `Ctrl+]` | jump to label definition | `Enter` on a label reference |
+| `Alt+Left` / `Alt+Right` | jump history back / forward | — |
+| `Shift+Arrow` | extend Source selection | — |
+| `?` | help outside Source | inserts `?` in Source |
 
 Arrow, Home, End, Delete, Backspace, Page Up, and Page Down keys edit or navigate the active view. Quitting with unsaved edits requires a second `Ctrl+Q`; saving or another command cancels that confirmation.
 
-The Memory view uses arrows to move the starting address. Press `G` to open the visible `Go to address: 0x____` mode, enter exactly four hexadecimal digits, and confirm with Enter. Backspace edits and Escape cancels it; other characters are ignored. Home jumps to PC, End to HL, Page Up to SP, and Page Down to VRAM at `0xC000`.
+The Memory view uses arrows to move the starting address. Press `g` to open the visible `Go to address: 0x____` mode, enter exactly four hexadecimal digits, and confirm with Enter. Backspace edits and Escape cancels it; other characters are ignored. Home jumps to PC, End to HL, Page Up to SP, and Page Down to VRAM at `0xC000`.
 
-The Bus view supports event selection, scrolling, returning to latest-event follow mode, and Enter to move to the selected event's exact source PC when a mapping exists. At normal width Event Group and Logical Waveform are simultaneous; Tab changes their focus. On narrow terminals Tab switches the visible Bus subview. All modes share selection and latest-event follow state.
+The Bus view uses `[` and `]` for event selection, End for latest-event follow mode, and Enter to move to the selected event's exact source PC when a mapping exists. At normal width Event Group and Logical Waveform are simultaneous. All modes share selection and latest-event follow state.
 
 ## Assembly and debugging
 
-A non-empty source is assembled immediately when opened, so the first frame already shows its generated instruction at PC 0000. Failure keeps the editor open and shows Diagnostics. Subsequent edits only mark the source and status as DIRTY; the source title labels the loaded build as stale. F2 assembles without saving, while Ctrl+S saves and then assembles.
+A non-empty source is assembled immediately when opened, so the first frame already shows its generated instruction at PC 0000. Failure keeps the editor open and shows Diagnostics. Subsequent edits only mark the source and status as DIRTY; the source title labels the loaded build as stale. Ctrl+R assembles without saving, while Ctrl+S saves and then assembles.
 
-The Source gutter always reserves symbol columns for breakpoint (●), current PC (▶), diagnostic (!), previous instruction (·), and edit cursor (▏). At sufficient width it also shows generated address and up to three bytes before the source; those columns disappear on narrow panes. A lightweight scanner colors labels, directives, mnemonics, registers, numbers, and comments. NO_COLOR suppresses color while the symbols preserve meaning.
+The Source gutter always reserves independent symbol columns for breakpoint (●), current PC (▶), diagnostic (!), previous instruction (▲), and edit cursor (┃). At sufficient width it also shows generated address and up to three bytes before the source; those columns disappear on narrow panes.
+
+### Z80-aware Source editing
+
+The gutter separates `BP`, `PC`, diagnostic, last-executed, edit-cursor, `LINE`, `ADDR`, and `BYTES` columns. The edit cursor (`┃`), current PC (`▶`), breakpoint (`●`), diagnostic (`!`), and last executed instruction (`▲`) are independent; current-PC text receives restrained emphasis rather than being confused with the editing line. Generated bytes also appear in a subdued inline suffix after assembled source when space permits.
+
+An assembler-independent tokenizer classifies labels, mnemonics, registers, numbers, directives, comments, strings, and character literals. A 128-slot line cache hashes visible source lines, so unchanged lines are not tokenized again each frame. `NO_COLOR` removes emitted ANSI colors without removing structural markers.
+
+Completion is refreshed on edits, allocates no memory per candidate, and uses the current instruction position:
+
+- the instruction field offers mnemonic and directive prefixes;
+- operands offer registers filtered for forms such as `PUSH`/`POP`, branch conditions and source labels for jumps, and address registers after `LD (`;
+- labels are collected from both `name:` and `name equ value` definitions across the source;
+- Up/Down selects a candidate, Space accepts it and adds a separator, and Enter accepts it without adding a newline.
+
+Enter preserves the previous indentation; a label followed by Enter starts its body with four spaces. Tab and Shift+Tab indent or unindent the current line or selected range. Shift+Arrow creates a selection. Ctrl+Z and Ctrl+Y navigate a bounded 64-snapshot edit history.
+
+Ctrl+F opens a small incremental literal-search bar; Enter finds the next occurrence and Escape closes it. Enter on a known label reference or Ctrl+] jumps to its definition. Alt+Left and Alt+Right navigate the bounded jump history. `Go Line`, `Go Label`, `Rename Label`, `Search`, `Breakpoint`, `Assemble`, and `Run` are available from the command palette. Rename performs a token-boundary replacement of definitions and references while skipping comments, strings, and character literals.
+
+Assembler failures remain shared structured diagnostics, but the failing span and message are also rendered inline. Hovering the edit cursor over a mnemonic redirects the Instruction card to that source instruction without changing PC. Step keeps the independent editing cursor in place, scrolls the current PC into view, and briefly annotates the executed source line with an observed register change, memory write, or `HALT`. `execution_overlay_enabled` keeps this feature independently switchable for a later settings UI.
 
 Assemble operates on the in-memory editor contents. Success stores the generated bytes, symbols, and source-line/address mappings and loads the same `Machine` used by the CLI Core. Failure leaves the text intact and shows the shared structured diagnostic with file, line, column, source line, and hint. Enter on the diagnostic moves the editor to that source line. Diagnostic strings are owned independently of the editable buffer, and AppState stores a diagnostic list even though the assembler currently stops at its first error. The CLI assembler prints the same structured location rather than parsing TUI text.
 
@@ -68,9 +92,9 @@ Across all cooperative slices, Run and Continue default to limits of 10,000,000 
 
 The Display panel reads the existing 128×64, 1bpp VRAM through the Machine's established pixel layout. It does not add terminal behavior to CPU or Machine.
 
-The CPU pane prioritizes AF, BC, DE, HL, SP, and PC. Changed values receive a * marker and temporary emphasis for about 1.2 seconds. Its adjoining Instruction Detail pane shows address, generated bytes, disassembly, byte length, timing used by the emulator, and a short learning-oriented description.
+The CPU card arranges AF, BC, DE, HL, SP, and PC vertically with deliberate spacing. Changed values receive a * marker and temporary emphasis for about 1.2 seconds. Its adjoining Instruction card explicitly labels Address, Opcode, Mnemonic, Length, Timing, Description, and Flags affected.
 
-Focused pane titles use reverse video. Header help changes with pane focus instead of showing one global key list. Ctrl+P opens a fixed command palette containing Assemble, Run, Reset, Go Address, and Toggle Breakpoint. Action results appear as a fixed-buffer toast for about two seconds. The status bar reports EDIT/ASSEMBLED/RUNNING/PAUSED/HALTED/BREAKPOINT/FAULT/LIMIT, PC, instruction and T-state totals, Trace occupancy, and dirty state.
+Focused pane titles use reverse video. Headers include live state, such as `Source (Dirty)`, `CPU (Paused)`, `Bus (0 events)`, and `Instruction (0000)`. Context help follows pane focus. Ctrl+P opens the command-centered palette containing Source navigation/editing actions, execution actions, view switches, and Quit. In Source, literal `:`, `?`, `b`, and `g` remain editable text; their single-key UI commands apply outside Source, while Ctrl+P and Ctrl+B remain global. Action results appear as a fixed-buffer toast for about two seconds. The status bar uses compact state and dirty badges followed by PC, instruction and T-state totals, and Trace occupancy.
 
 ## Bus Trace accuracy
 
@@ -80,7 +104,7 @@ The optional Core `TraceSink` records opcode fetches, immediate operand reads, m
 
 The event list includes the instruction index, logical event index within that instruction, instruction-start T-state total, kind, address, data, PC, and modeled signals. `t_state_start` is the CPU total at instruction start, not the access time. `t_state_count == 0` means unmeasured logical access.
 
-When focused at normal width, Bus uses the full body and places Event Group beside Logical Waveform. Event Group shows all accesses belonging to the selected instruction—such as Opcode Fetch, Operand Read, and Memory Write—with their within-instruction index. Tab changes focus between the two while selection remains shared.
+When focused at normal width, Bus uses the full body and places Event Group beside Logical Waveform. Event Group shows all accesses belonging to the selected instruction—such as Opcode Fetch, Operand Read, and Memory Write—with their within-instruction index.
 
 Logical Waveform renders M1, MREQ, IORQ, RD, WR, RFSH, Address, Data, and Type rows. Every event occupies one equal `Event slot`; no duration is inferred. The selected column uses reverse video as well as color-independent placement. Width determines the visible slot count without copying ring-buffer events each frame. Before events exist, the Bus area contracts beside a Getting Started pane; it expands automatically after Step or Run. UTF-8 locales use line/block glyphs and merged pane junctions, while other locales use ASCII. VCD export remains future work and requires more accurate source data.
 
@@ -88,7 +112,9 @@ The input layer uses one persistent, allocation-free 256-byte stream decoder. It
 
 ## Current limitations
 
-- No completion, undo/redo, search, mouse input, or multiple files.
+- Completion uses a broad Z80 vocabulary for learning, while the current assembler implements only its documented subset; selecting a mnemonic such as `LDI` can therefore still produce an assembler diagnostic.
+- Search is literal and case-sensitive. Undo/Redo uses bounded full-source snapshots rather than edit coalescing.
+- No clipboard operations, mouse input, or multiple files.
 - UTF-8 source is kept valid and can be edited, but terminal column widths for full-width and combining characters are not modeled.
 - No watchpoints, step over/out, time travel, asynchronous execution, or hardware USB debugging.
 - Bus waveform slots are logical accesses, not electrical or cycle-accurate timing; I/O, refresh, and interrupt events are not emitted yet.

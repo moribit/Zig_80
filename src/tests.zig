@@ -15,9 +15,11 @@ const command = @import("tui/command.zig");
 const Layout = @import("tui/layout.zig").Layout;
 const AppState = @import("tui/state.zig").AppState;
 const ExecutionState = @import("tui/state.zig").ExecutionState;
+const PromptMode = @import("tui/state.zig").PromptMode;
 const tui_app = @import("tui/app.zig");
 const bus_waveform = @import("tui/bus_waveform.zig");
 const Rect = @import("tui/layout.zig").Rect;
+const editor_syntax = @import("tui/editor/syntax.zig");
 
 fn execute(program: []const u8) !struct { Cpu, Bus } {
     var bus = Bus{};
@@ -194,14 +196,20 @@ test "source buffer edits utf8 text and tracks cursor dirty state and scrolling"
 test "input decoder and keymap recognize terminal sequences and alternatives" {
     const up = input.decode("\x1b[A").?;
     try std.testing.expect(up.code == .up);
-    const assemble = command.map(input.decode("\x1bOQ").?);
+    const assemble = command.map(.{ .code = .{ .character = 'r' }, .ctrl = true });
     try std.testing.expect(assemble == .assemble);
     const save = command.map(input.decode(&.{19}).?);
     try std.testing.expect(save == .save);
     const bus_screen = command.map(input.decode("\x1b4").?);
     try std.testing.expect(bus_screen == .switch_screen);
     try std.testing.expectEqual(command.Screen.bus, bus_screen.switch_screen);
-    try std.testing.expect(command.map(.{ .code = .tab }) == .tab);
+    try std.testing.expect(command.map(.{ .code = .tab }) == .next_pane);
+    try std.testing.expect(command.map(.{ .code = .tab, .shift = true }) == .previous_pane);
+    try std.testing.expect(command.map(.{ .code = .{ .function = 2 } }) == .none);
+    try std.testing.expect(command.map(input.decode(&.{0}).?) == .continue_execution);
+    const ctrl_one = command.map(input.decode("\x1b[49;5u").?);
+    try std.testing.expect(ctrl_one == .switch_screen);
+    try std.testing.expectEqual(command.Screen.editor, ctrl_one.switch_screen);
 }
 
 test "stream input decoder preserves split escape alt and utf8 input" {
@@ -275,7 +283,7 @@ test "frame clips content and diff emits only changes" {
 test "layout supports normal and compact terminals" {
     const normal = Layout.calculate(120, 40);
     try std.testing.expect(!normal.compact);
-    try std.testing.expectEqual(@as(usize, 72), normal.source.width);
+    try std.testing.expectEqual(@as(usize, 84), normal.source.width);
     const compact = Layout.calculate(62, 18);
     try std.testing.expect(compact.compact);
     try std.testing.expectEqual(@as(usize, 17), compact.status.y);
@@ -491,10 +499,10 @@ test "ide gutter renders markers generated address bytes and token styles" {
     var frame = try Frame.init(std.testing.allocator, 90, 8);
     defer frame.deinit();
     tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 90, .height = 8 });
-    try std.testing.expectEqual(@as(u21, '▶'), frame.get(3, 1).codepoint);
-    try std.testing.expectEqual(@as(u21, '0'), frame.get(13, 1).codepoint);
-    try std.testing.expectEqual(@as(u21, '2'), frame.get(18, 1).codepoint);
-    try std.testing.expectEqual(@import("tui/render/style.zig").Color.cyan, frame.get(29, 1).style.fg);
+    try std.testing.expectEqual(@as(u21, '▶'), frame.get(3, 2).codepoint);
+    try std.testing.expectEqual(@as(u21, '0'), frame.get(16, 2).codepoint);
+    try std.testing.expectEqual(@as(u21, '2'), frame.get(21, 2).codepoint);
+    try std.testing.expectEqual(@import("tui/render/style.zig").Color.cyan, frame.get(31, 2).style.fg);
 
     state.source.moveEnd();
     try state.source.insert(' ');
@@ -507,11 +515,13 @@ test "instruction detail shows address bytes mnemonic length timing and descript
     var frame = try Frame.init(std.testing.allocator, 52, 9);
     defer frame.deinit();
     tui_app.renderInstruction(&state, &frame, Rect{ .x = 0, .y = 0, .width = 52, .height = 9 });
-    try std.testing.expect(frameContains(&frame, "0000  LD HL,0xC000"));
-    try std.testing.expect(frameContains(&frame, "21"));
-    try std.testing.expect(frameContains(&frame, "Length 3 bytes"));
-    try std.testing.expect(frameContains(&frame, "Timing 10 T"));
-    try std.testing.expect(frameContains(&frame, "Load an immediate 16-bit"));
+    try std.testing.expect(frameContains(&frame, "Address      0000"));
+    try std.testing.expect(frameContains(&frame, "Opcode       21"));
+    try std.testing.expect(frameContains(&frame, "Mnemonic     LD HL,0xC000"));
+    try std.testing.expect(frameContains(&frame, "Length       3 bytes"));
+    try std.testing.expect(frameContains(&frame, "Timing       10 T"));
+    try std.testing.expect(frameContains(&frame, "Description  Load an immediate"));
+    try std.testing.expect(frameContains(&frame, "Flags        None"));
 }
 
 test "cpu register changes highlight temporarily and expire" {
@@ -587,7 +597,7 @@ test "dynamic layout replaces empty bus with getting started and expands after t
     try std.testing.expect(frameContains(&frame, "GETTING STARTED"));
     state.step();
     tui_app.render(&state, &frame);
-    try std.testing.expect(frameContains(&frame, "EVENT GROUP"));
+    try std.testing.expect(frameContains(&frame, "INSTRUCTION #"));
     try std.testing.expect(frameContains(&frame, "LOGICAL WAVEFORM"));
 }
 
@@ -600,15 +610,167 @@ test "pane focus context help and command palette follow active state" {
     try std.testing.expect(frame.get(3, 2).style.reverse); // SOURCE title
     try state.apply(.{ .switch_screen = .debug }, std.testing.io);
     tui_app.render(&state, &frame);
-    try std.testing.expect(frame.get(63, 2).style.reverse); // CPU title
-    try std.testing.expect(frameContains(&frame, "CPU  F6 Step"));
+    try std.testing.expect(frame.get(73, 2).style.reverse); // CPU title
+    try std.testing.expect(frameContains(&frame, "CPU  Ctrl+T Step"));
+    try state.apply(.next_pane, std.testing.io);
+    try std.testing.expectEqual(command.Screen.memory, state.active_screen);
+    try state.apply(.previous_pane, std.testing.io);
+    try std.testing.expectEqual(command.Screen.debug, state.active_screen);
 
     const palette_key = command.map(.{ .code = .{ .character = 'p' }, .ctrl = true });
     try std.testing.expect(palette_key == .open_palette);
     try state.apply(palette_key, std.testing.io);
     tui_app.render(&state, &frame);
     try std.testing.expect(frameContains(&frame, "COMMAND PALETTE"));
-    try std.testing.expect(frameContains(&frame, "Assemble"));
+    try std.testing.expect(frameContains(&frame, "assemble"));
     try state.apply(.cancel, std.testing.io);
     try std.testing.expect(!state.palette.active);
+}
+
+test "z80 syntax tokenizer classifies editor language tokens" {
+    const tokens = editor_syntax.tokenize("start: ld hl,0xC000 ; text \"ignored\"");
+    try std.testing.expect(tokens.len >= 5);
+    try std.testing.expectEqual(editor_syntax.TokenKind.label, tokens.items[0].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.mnemonic, tokens.items[1].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.register, tokens.items[2].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.number, tokens.items[3].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.comment, tokens.items[4].kind);
+    const literals = editor_syntax.tokenize("db \"hello\", 'A'");
+    try std.testing.expectEqual(editor_syntax.TokenKind.directive, literals.items[0].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.string, literals.items[1].kind);
+    try std.testing.expectEqual(editor_syntax.TokenKind.character, literals.items[2].kind);
+}
+
+test "completion uses mnemonic register directive operand and source labels" {
+    var completion: editor_syntax.Completion = .{};
+    editor_syntax.complete("l", 1, &completion);
+    try std.testing.expect(completion.active);
+    try std.testing.expect(completionHas(&completion, "ld"));
+    try std.testing.expect(completionHas(&completion, "ldi"));
+    editor_syntax.complete("or", 2, &completion);
+    try std.testing.expect(completionHas(&completion, "org"));
+    editor_syntax.complete("start:\n ld h", 12, &completion);
+    try std.testing.expect(completionHas(&completion, "hl"));
+    editor_syntax.complete("start:\n jp st", 13, &completion);
+    try std.testing.expect(completionHas(&completion, "start"));
+    editor_syntax.complete("ld (", 4, &completion);
+    try std.testing.expect(completionHas(&completion, "ix"));
+}
+
+test "source editor auto indents selects indents and supports undo redo" {
+    var source = try SourceBuffer.init(std.testing.allocator, "loop:");
+    defer source.deinit();
+    source.cursor = source.text().len;
+    try source.newline();
+    try std.testing.expectEqualStrings("loop:\n    ", source.text());
+    try source.insert('l');
+    try source.insert('d');
+    try std.testing.expect(try source.undo());
+    try std.testing.expectEqualStrings("loop:\n    l", source.text());
+    try std.testing.expect(try source.redo());
+    try std.testing.expectEqualStrings("loop:\n    ld", source.text());
+    source.move(.home, false);
+    source.move(.end, true);
+    try std.testing.expect(source.selectionRange() != null);
+    try source.indent(false);
+    try std.testing.expect(std.mem.indexOf(u8, source.text(), "        ld") != null);
+}
+
+test "editor search jump history rename hover and execution overlay are integrated" {
+    var state = try AppState.init(std.testing.allocator, null, "start:\n ld hl,0xC000\n jp start\n halt\n");
+    defer state.deinit();
+    _ = state.source.goToLine(2);
+    state.source.moveEnd();
+    try state.apply(.jump_definition, std.testing.io);
+    try std.testing.expectEqual(@as(usize, 0), state.source.lineAndColumn().line);
+    try state.apply(.jump_back, std.testing.io);
+    try std.testing.expectEqual(@as(usize, 2), state.source.lineAndColumn().line);
+
+    _ = state.source.goToLine(0);
+    try state.apply(.open_palette, std.testing.io);
+    state.palette.selected = 2;
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expectEqual(PromptMode.rename, state.editor_prompt.mode);
+    try state.apply(.{ .insert_character = 'm' }, std.testing.io);
+    try state.apply(.{ .insert_character = 'a' }, std.testing.io);
+    try state.apply(.{ .insert_character = 'i' }, std.testing.io);
+    try state.apply(.{ .insert_character = 'n' }, std.testing.io);
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expect(std.mem.indexOf(u8, state.source.text(), "main:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, state.source.text(), "jp main") != null);
+
+    try state.apply(.search, std.testing.io);
+    try state.apply(.{ .insert_character = 'h' }, std.testing.io);
+    try state.apply(.{ .insert_character = 'a' }, std.testing.io);
+    try state.apply(.{ .insert_character = 'l' }, std.testing.io);
+    try state.apply(.{ .insert_character = 't' }, std.testing.io);
+    try std.testing.expectEqual(@as(usize, 3), state.source.lineAndColumn().line);
+    try state.apply(.cancel, std.testing.io);
+
+    state.assemble();
+    _ = state.source.goToLine(1);
+    state.source.moveHome();
+    state.source.moveRight();
+    try std.testing.expectEqual(@as(u16, 0), state.inspectionAddress().?);
+    state.step();
+    try std.testing.expect(state.execution_overlay != null);
+    try std.testing.expectEqualStrings("HL ← C000", state.execution_overlay.?.text[0..state.execution_overlay.?.len]);
+    try std.testing.expect(state.follow_pc);
+}
+
+fn completionHas(completion: *const editor_syntax.Completion, wanted: []const u8) bool {
+    for (0..completion.len) |index| if (std.mem.eql(u8, completion.item(index), wanted)) return true;
+    return false;
+}
+
+test "source frame renders completion inline code diagnostics overlay and selection" {
+    var completion_state = try AppState.init(std.testing.allocator, null, "");
+    defer completion_state.deinit();
+    try completion_state.apply(.{ .insert_character = 'l' }, std.testing.io);
+    var frame = try Frame.init(std.testing.allocator, 100, 14);
+    defer frame.deinit();
+    tui_app.renderSource(&completion_state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expect(frameContains(&frame, "COMPLETE"));
+    try std.testing.expect(frameContains(&frame, "ldi"));
+
+    var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nhalt\n");
+    defer state.deinit();
+    frame.clear();
+    tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expect(frameContains(&frame, "BP PC !"));
+    try std.testing.expect(frameContains(&frame, "[21 00 C0 ]"));
+    state.source.move(.right, true);
+    frame.clear();
+    tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expect(frame.get(31, 2).style.reverse);
+    state.source.selection_anchor = null;
+    state.unicode_ui = false;
+    state.step();
+    frame.clear();
+    tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expect(frameContains(&frame, "HL <- C000"));
+
+    var broken = try AppState.init(std.testing.allocator, null, "jp missing\n");
+    defer broken.deinit();
+    frame.clear();
+    tui_app.renderSource(&broken, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expect(frameContains(&frame, "! undefined symbol"));
+}
+
+test "step follows an offscreen PC without moving the edit cursor" {
+    var source: std.ArrayList(u8) = .empty;
+    defer source.deinit(std.testing.allocator);
+    for (0..30) |_| try source.appendSlice(std.testing.allocator, "nop\n");
+    try source.appendSlice(std.testing.allocator, "halt\n");
+    var state = try AppState.init(std.testing.allocator, null, source.items);
+    defer state.deinit();
+    state.unicode_ui = false;
+    const edit_cursor = state.source.cursor;
+    for (0..20) |_| state.step();
+    var frame = try Frame.init(std.testing.allocator, 100, 9);
+    defer frame.deinit();
+    tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 9 });
+    try std.testing.expect(state.source.scroll_y > 0);
+    try std.testing.expectEqual(edit_cursor, state.source.cursor);
+    try std.testing.expect(frameContains(&frame, ">"));
 }

@@ -130,19 +130,49 @@ pub fn decode(bytes: []const u8) ?key.KeyEvent {
         if (std.mem.eql(u8, sequence, "[3~")) return .{ .code = .delete };
         if (std.mem.eql(u8, sequence, "[5~")) return .{ .code = .page_up };
         if (std.mem.eql(u8, sequence, "[6~")) return .{ .code = .page_down };
+        if (std.mem.eql(u8, sequence, "[Z")) return .{ .code = .tab, .shift = true };
+        if (decodeModifiedArrow(sequence)) |event| return event;
+        if (decodeCsiU(sequence)) |event| return event;
         if (functionKey(sequence)) |number| return .{ .code = .{ .function = number } };
         return null;
     }
     const byte = bytes[0];
+    if (byte == 0) return .{ .code = .{ .character = ' ' }, .ctrl = true };
     if (byte == '\r' or byte == '\n') return .{ .code = .enter };
     if (byte == '\t') return .{ .code = .tab };
     if (byte == 0x7f or byte == 0x08) return .{ .code = .backspace };
     if (byte >= 1 and byte <= 26) return .{ .code = .{ .character = 'a' + byte - 1 }, .ctrl = true };
+    if (byte >= 28 and byte <= 31) return .{ .code = .{ .character = "\\]^_"[byte - 28] }, .ctrl = true };
     if (byte < 0x80) return .{ .code = .{ .character = byte } };
     const length = std.unicode.utf8ByteSequenceLength(byte) catch return null;
     if (bytes.len < length) return null;
     const codepoint = std.unicode.utf8Decode(bytes[0..length]) catch return null;
     return .{ .code = .{ .character = codepoint } };
+}
+
+fn decodeModifiedArrow(sequence: []const u8) ?key.KeyEvent {
+    if (sequence.len < 5 or !std.mem.startsWith(u8, sequence, "[1;") or sequence[sequence.len - 1] < 'A' or sequence[sequence.len - 1] > 'D') return null;
+    const modifier = std.fmt.parseInt(u8, sequence[3 .. sequence.len - 1], 10) catch return null;
+    if (modifier == 0) return null;
+    const bits = modifier - 1;
+    const code: key.KeyCode = switch (sequence[sequence.len - 1]) {
+        'A' => .up,
+        'B' => .down,
+        'C' => .right,
+        'D' => .left,
+        else => return null,
+    };
+    return .{ .code = code, .shift = bits & 1 != 0, .alt = bits & 2 != 0, .ctrl = bits & 4 != 0 };
+}
+
+fn decodeCsiU(sequence: []const u8) ?key.KeyEvent {
+    if (sequence.len < 4 or sequence[0] != '[' or sequence[sequence.len - 1] != 'u') return null;
+    const separator = std.mem.indexOfScalar(u8, sequence, ';') orelse return null;
+    const codepoint = std.fmt.parseInt(u21, sequence[1..separator], 10) catch return null;
+    const modifier = std.fmt.parseInt(u8, sequence[separator + 1 .. sequence.len - 1], 10) catch return null;
+    if (modifier == 0) return null;
+    const bits = modifier - 1;
+    return .{ .code = .{ .character = codepoint }, .shift = bits & 1 != 0, .alt = bits & 2 != 0, .ctrl = bits & 4 != 0 };
 }
 
 fn functionKey(sequence: []const u8) ?u8 {

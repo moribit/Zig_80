@@ -20,7 +20,7 @@ pub const Layout = struct {
         const status_height: usize = 1;
         const available = height - body_y - status_height;
         const upper_height = available * 2 / 3;
-        const source_width = width * 3 / 5;
+        const source_width = width * 7 / 10;
         return .{
             .compact = false,
             .header = .{ .x = 0, .y = 0, .width = width, .height = 2 },

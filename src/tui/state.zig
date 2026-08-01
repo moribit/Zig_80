@@ -8,6 +8,7 @@ const SourceBuffer = @import("editor/buffer.zig").SourceBuffer;
 const TraceBuffer = @import("../trace/trace.zig").TraceBuffer;
 const Command = @import("command.zig").Command;
 const Screen = @import("command.zig").Screen;
+const editor_syntax = @import("editor/syntax.zig");
 
 pub const ExecutionState = enum { empty, assembled, paused, running, halted, breakpoint, limit_reached, faulted };
 pub const BusView = enum { events, waveform };
@@ -38,6 +39,25 @@ pub const CommandPalette = struct {
     selected: usize = 0,
 };
 
+pub const PromptMode = enum { none, search, go_line, go_label, rename };
+pub const EditorPrompt = struct {
+    mode: PromptMode = .none,
+    query: [64]u8 = undefined,
+    len: usize = 0,
+    rename_old: [32]u8 = undefined,
+    rename_old_len: usize = 0,
+    pub fn text(self: *const EditorPrompt) []const u8 {
+        return self.query[0..self.len];
+    }
+};
+
+pub const ExecutionOverlay = struct {
+    source_line: usize,
+    text: [64]u8 = undefined,
+    len: usize = 0,
+    expires_at_ms: i64,
+};
+
 pub const AppState = struct {
     allocator: std.mem.Allocator,
     source_path: ?[]u8 = null,
@@ -64,6 +84,15 @@ pub const AppState = struct {
     ui_now_ms: i64 = 0,
     toast: ?Toast = null,
     palette: CommandPalette = .{},
+    completion: editor_syntax.Completion = .{},
+    syntax_cache: editor_syntax.SyntaxCache = .{},
+    editor_prompt: EditorPrompt = .{},
+    jump_history: [64]usize = undefined,
+    jump_history_len: usize = 0,
+    jump_history_index: usize = 0,
+    execution_overlay: ?ExecutionOverlay = null,
+    execution_overlay_enabled: bool = true,
+    follow_pc: bool = false,
     register_highlight_until_ms: i64 = 0,
     quit_requested: bool = false,
     confirm_quit: bool = false,
@@ -189,6 +218,8 @@ pub const AppState = struct {
                 if (event.sequence >= first_new_sequence and event.kind == .memory_write) self.last_memory_write = event.address;
             }
         }
+        self.updateExecutionOverlay(first_new_sequence);
+        self.follow_pc = true;
         if (self.trace_follow and self.trace.len > 0) self.selected_trace_event = self.trace.len - 1;
         if (result.halted) {
             self.execution_state = .halted;
@@ -263,6 +294,10 @@ pub const AppState = struct {
     }
 
     pub fn apply(self: *AppState, action: Command, io: Io) !void {
+        if (self.editor_prompt.mode != .none) {
+            try self.applyEditorPrompt(action);
+            return;
+        }
         if (self.palette.active) {
             try self.applyPalette(action, io);
             return;
@@ -270,18 +305,53 @@ pub const AppState = struct {
         const was_quit = std.meta.activeTag(action) == .quit;
         switch (action) {
             .insert_character => |value| {
-                if (self.active_screen == .editor) try self.source.insert(value) else if (self.active_screen == .memory) self.memoryCharacter(value);
+                if (self.active_screen == .editor) {
+                    self.follow_pc = false;
+                    if (value == ' ' and self.completion.active) try self.acceptCompletion(true) else {
+                        try self.source.insert(value);
+                        self.refreshCompletion();
+                    }
+                } else if (value == 'b') {
+                    self.toggleBreakpoint();
+                } else if (value == 'g') {
+                    self.active_screen = .memory;
+                    self.memory_input = .{ .active = true };
+                } else if (self.active_screen == .memory) {
+                    self.memoryCharacter(value);
+                } else if (self.active_screen == .bus and value == '[') {
+                    self.moveView(.left);
+                } else if (self.active_screen == .bus and value == ']') self.moveView(.right);
             },
-            .newline => if (self.diagnostics_list.items.len > 0) {
+            .newline => if (self.active_screen == .editor and self.completion.active) {
+                try self.acceptCompletion(false);
+            } else if (self.diagnostics_list.items.len > 0) {
                 if (self.goToDiagnostic(0)) {
                     self.clearDiagnostics();
                 }
-            } else if (self.active_screen == .editor) try self.source.newline() else if (self.active_screen == .bus) self.jumpFromTrace() else if (self.active_screen == .memory) self.confirmMemoryInput(),
-            .backspace => if (self.active_screen == .editor) self.source.backspace() else if (self.active_screen == .memory and self.memory_input.active and self.memory_input.len > 0) {
+            } else if (self.active_screen == .editor) {
+                if (!self.jumpToDefinition()) try self.source.newline();
+                self.refreshCompletion();
+            } else if (self.active_screen == .bus) self.jumpFromTrace() else if (self.active_screen == .memory) self.confirmMemoryInput(),
+            .backspace => if (self.active_screen == .editor) {
+                self.source.backspace();
+                self.refreshCompletion();
+            } else if (self.active_screen == .memory and self.memory_input.active and self.memory_input.len > 0) {
                 self.memory_input.len -= 1;
             },
-            .delete => if (self.active_screen == .editor) self.source.delete(),
-            .move_cursor => |direction| self.moveView(direction),
+            .delete => if (self.active_screen == .editor) {
+                self.source.delete();
+                self.refreshCompletion();
+            },
+            .move_cursor => |direction| {
+                if (self.active_screen == .editor and self.completion.active and (direction == .up or direction == .down)) {
+                    if (direction == .up) self.completion.selected -|= 1 else self.completion.selected = @min(self.completion.selected + 1, self.completion.len - 1);
+                } else {
+                    self.completion.active = false;
+                    if (self.active_screen == .editor) self.follow_pc = false;
+                    self.moveView(direction);
+                }
+            },
+            .select_cursor => |direction| self.selectSource(direction),
             .save => try self.save(io),
             .assemble => self.assemble(),
             .run => self.runFromReset(),
@@ -293,18 +363,42 @@ pub const AppState = struct {
             .switch_screen => |screen| self.active_screen = screen,
             .show_help => self.active_screen = .help,
             .open_palette => self.palette = .{ .active = true },
+            .palette_or_colon => {
+                if (self.active_screen == .editor) {
+                    try self.source.insert(':');
+                } else self.palette = .{ .active = true };
+            },
+            .help_or_question => {
+                if (self.active_screen == .editor) {
+                    try self.source.insert('?');
+                    self.refreshCompletion();
+                } else self.active_screen = .help;
+            },
+            .next_pane => if (self.active_screen == .editor) {
+                try self.source.indent(false);
+                self.refreshCompletion();
+            } else self.focusPane(true),
+            .previous_pane => if (self.active_screen == .editor) {
+                try self.source.indent(true);
+                self.refreshCompletion();
+            } else self.focusPane(false),
+            .undo => if (try self.source.undo()) self.afterHistoryEdit("Undo"),
+            .redo => if (try self.source.redo()) self.afterHistoryEdit("Redo"),
+            .search => self.openPrompt(.search),
+            .jump_definition => _ = self.jumpToDefinition(),
+            .jump_back => self.jumpHistory(false),
+            .jump_forward => self.jumpHistory(true),
             .quit => {
                 if (self.source.dirty and !self.confirm_quit) {
                     self.confirm_quit = true;
                     self.setStatus("Unsaved changes: Ctrl+Q again to discard, or Ctrl+S to save", .{});
                 } else self.quit_requested = true;
             },
-            .tab => {
-                if (self.active_screen == .bus) self.bus_view = if (self.bus_view == .events) .waveform else .events;
-            },
-            .cancel => if (self.active_screen == .memory and self.memory_input.active) {
-                self.memory_input = .{};
-                self.setStatus("Memory address input cancelled", .{});
+            .cancel => {
+                if (self.active_screen == .memory and self.memory_input.active) {
+                    self.memory_input = .{};
+                    self.setStatus("Memory address input cancelled", .{});
+                } else self.pause();
             },
             .none => {},
         }
@@ -315,6 +409,9 @@ pub const AppState = struct {
         self.ui_now_ms = now_ms;
         if (self.toast) |toast| {
             if (now_ms >= toast.expires_at_ms) self.toast = null;
+        }
+        if (self.execution_overlay) |overlay| {
+            if (now_ms >= overlay.expires_at_ms) self.execution_overlay = null;
         }
     }
 
@@ -329,7 +426,7 @@ pub const AppState = struct {
         return self.ui_now_ms < self.register_highlight_until_ms;
     }
 
-    pub const palette_commands = [_][]const u8{ "Assemble", "Run", "Reset", "Go Address", "Toggle Breakpoint" };
+    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "quit" };
 
     fn applyPalette(self: *AppState, action: Command, io: Io) !void {
         switch (action) {
@@ -342,35 +439,244 @@ pub const AppState = struct {
                 const selected = self.palette.selected;
                 self.palette.active = false;
                 switch (selected) {
-                    0 => self.assemble(),
-                    1 => self.runFromReset(),
-                    2 => self.reset(),
-                    3 => {
-                        self.active_screen = .memory;
-                        self.memory_input = .{ .active = true };
-                    },
+                    0 => self.openPrompt(.go_line),
+                    1 => self.openPrompt(.go_label),
+                    2 => self.openRenamePrompt(),
+                    3 => self.openPrompt(.search),
                     4 => self.toggleBreakpoint(),
+                    5 => self.assemble(),
+                    6 => self.runFromReset(),
+                    7 => self.step(),
+                    8 => self.continueExecution(),
+                    9 => self.active_screen = .memory,
+                    10 => self.active_screen = .display,
+                    11 => self.active_screen = .bus,
+                    12 => {
+                        if (self.source.dirty and !self.confirm_quit) {
+                            self.confirm_quit = true;
+                            self.palette.active = true;
+                            self.setStatus("Unsaved changes: choose quit again to discard, or Ctrl+S to save", .{});
+                        } else self.quit_requested = true;
+                    },
                     else => {},
                 }
             },
             .cancel, .open_palette => self.palette.active = false,
-            .quit => self.quit_requested = true,
+            .quit => {
+                if (self.source.dirty and !self.confirm_quit) {
+                    self.confirm_quit = true;
+                    self.setStatus("Unsaved changes: Ctrl+Q again to discard, or Ctrl+S to save", .{});
+                } else self.quit_requested = true;
+            },
             .save => try self.save(io),
             else => {},
         }
     }
 
+    fn refreshCompletion(self: *AppState) void {
+        editor_syntax.complete(self.source.text(), self.source.cursor, &self.completion);
+    }
+
+    fn acceptCompletion(self: *AppState, trailing_space: bool) !void {
+        if (!self.completion.active or self.completion.selected >= self.completion.len) return;
+        const item = self.completion.item(self.completion.selected);
+        try self.source.replaceRange(self.completion.replace_start, self.completion.replace_end, item);
+        self.completion.active = false;
+        if (trailing_space) try self.source.insert(' ');
+    }
+
+    fn afterHistoryEdit(self: *AppState, action: []const u8) void {
+        self.completion.active = false;
+        self.setStatus("{s}", .{action});
+    }
+
+    fn selectSource(self: *AppState, direction: @import("command.zig").Direction) void {
+        if (self.active_screen != .editor) return;
+        self.follow_pc = false;
+        switch (direction) {
+            .up => self.source.move(.up, true),
+            .down => self.source.move(.down, true),
+            .left => self.source.move(.left, true),
+            .right => self.source.move(.right, true),
+            .home => self.source.move(.home, true),
+            .end => self.source.move(.end, true),
+            .page_up, .page_down => {},
+        }
+        self.completion.active = false;
+    }
+
+    fn openPrompt(self: *AppState, mode: PromptMode) void {
+        self.active_screen = .editor;
+        self.editor_prompt = .{ .mode = mode };
+        self.completion.active = false;
+    }
+
+    fn openRenamePrompt(self: *AppState) void {
+        const word = editor_syntax.wordAt(self.source.text(), self.source.cursor) orelse {
+            self.setStatus("Place the cursor on a label before Rename Label", .{});
+            return;
+        };
+        if (editor_syntax.findLabelDefinition(self.source.text(), word.text) == null) {
+            self.setStatus("{s} is not a defined label", .{word.text});
+            return;
+        }
+        if (word.text.len > 32) return;
+        self.openPrompt(.rename);
+        @memcpy(self.editor_prompt.rename_old[0..word.text.len], word.text);
+        self.editor_prompt.rename_old_len = word.text.len;
+    }
+
+    fn applyEditorPrompt(self: *AppState, action: Command) !void {
+        switch (action) {
+            .insert_character => |value| self.appendPrompt(value),
+            .palette_or_colon => self.appendPrompt(':'),
+            .help_or_question => self.appendPrompt('?'),
+            .backspace => if (self.editor_prompt.len > 0) {
+                self.editor_prompt.len = previousUtf8(self.editor_prompt.query[0..self.editor_prompt.len], self.editor_prompt.len);
+                if (self.editor_prompt.mode == .search) self.findQuery(false);
+            },
+            .newline => {
+                switch (self.editor_prompt.mode) {
+                    .search => self.findQuery(true),
+                    .go_line => {
+                        const line = std.fmt.parseInt(usize, self.editor_prompt.text(), 10) catch 0;
+                        if (line > 0) _ = self.source.goToLine(line - 1);
+                        self.editor_prompt = .{};
+                    },
+                    .go_label => {
+                        if (editor_syntax.findLabelDefinition(self.source.text(), self.editor_prompt.text())) |line| self.jumpToLine(line);
+                        self.editor_prompt = .{};
+                    },
+                    .rename => {
+                        const old = self.editor_prompt.rename_old[0..self.editor_prompt.rename_old_len];
+                        const new = self.editor_prompt.text();
+                        if (new.len > 0) {
+                            const count = try self.source.replaceAllIdentifier(old, new);
+                            self.setStatus("Renamed {s} to {s} at {d} locations", .{ old, new, count });
+                        }
+                        self.editor_prompt = .{};
+                    },
+                    .none => {},
+                }
+            },
+            .cancel => self.editor_prompt = .{},
+            .search => self.findQuery(true),
+            else => {},
+        }
+    }
+
+    fn appendPrompt(self: *AppState, value: u21) void {
+        var encoded: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(value, &encoded) catch return;
+        if (self.editor_prompt.len + len <= self.editor_prompt.query.len) {
+            @memcpy(self.editor_prompt.query[self.editor_prompt.len..][0..len], encoded[0..len]);
+            self.editor_prompt.len += len;
+            if (self.editor_prompt.mode == .search) self.findQuery(false);
+        }
+    }
+
+    fn findQuery(self: *AppState, next: bool) void {
+        const query = self.editor_prompt.text();
+        if (query.len == 0) return;
+        const text = self.source.text();
+        const start = if (next) @min(self.source.cursor + 1, text.len) else 0;
+        const found = std.mem.indexOfPos(u8, text, start, query) orelse std.mem.indexOf(u8, text, query) orelse return;
+        self.source.cursor = found;
+        self.source.selection_anchor = found + query.len;
+    }
+
+    fn jumpToDefinition(self: *AppState) bool {
+        if (self.active_screen != .editor) return false;
+        const word = editor_syntax.wordAt(self.source.text(), self.source.cursor) orelse return false;
+        const line = editor_syntax.findLabelDefinition(self.source.text(), word.text) orelse return false;
+        if (line == self.source.lineAndColumn().line) return false;
+        self.jumpToLine(line);
+        self.setStatus("Definition: {s}", .{word.text});
+        return true;
+    }
+
+    fn jumpToLine(self: *AppState, line: usize) void {
+        if (self.jump_history_len == 0) {
+            self.jump_history[self.jump_history_len] = self.source.cursor;
+            self.jump_history_len += 1;
+        } else if (self.jump_history_index + 1 < self.jump_history_len) {
+            self.jump_history_len = self.jump_history_index + 1;
+        }
+        _ = self.source.goToLine(line);
+        if (self.jump_history_len < self.jump_history.len) {
+            self.jump_history[self.jump_history_len] = self.source.cursor;
+            self.jump_history_len += 1;
+            self.jump_history_index = self.jump_history_len - 1;
+        }
+    }
+
+    fn jumpHistory(self: *AppState, forward: bool) void {
+        if (forward) {
+            if (self.jump_history_index + 1 >= self.jump_history_len) return;
+            self.jump_history_index += 1;
+            self.source.cursor = self.jump_history[self.jump_history_index];
+        } else {
+            if (self.jump_history_index == 0) return;
+            self.jump_history_index -= 1;
+            self.source.cursor = self.jump_history[self.jump_history_index];
+        }
+        self.source.selection_anchor = null;
+    }
+
+    pub fn inspectionAddress(self: *AppState) ?u16 {
+        if (self.active_screen != .editor) return null;
+        const position = self.source.lineAndColumn();
+        const line = self.source.lineSlice(position.line) orelse return null;
+        const tokens = self.syntax_cache.tokens(position.line, line);
+        const start = self.source.absoluteLineStart(position.line) orelse return null;
+        var on_mnemonic = false;
+        for (tokens.items[0..tokens.len]) |token| if (token.kind == .mnemonic and self.source.cursor >= start + token.start and self.source.cursor <= start + token.end) {
+            on_mnemonic = true;
+            break;
+        };
+        if (!on_mnemonic) return null;
+        const assembly = if (self.assembly) |*value| value else return null;
+        for (assembly.lines.items) |info| if (info.line == position.line + 1) return info.address;
+        return null;
+    }
+
+    fn updateExecutionOverlay(self: *AppState, first_sequence: u64) void {
+        if (!self.execution_overlay_enabled) return;
+        const before = self.debug_session.previous orelse return;
+        const after = self.debug_session.current orelse return;
+        const source_line = self.sourceLineForPC(before.registers.pc) orelse return;
+        var overlay = ExecutionOverlay{ .source_line = source_line, .expires_at_ms = self.ui_now_ms + 1800 };
+        var text: []const u8 = "";
+        for (0..self.trace.len) |index| if (self.trace.get(index)) |event| {
+            if (event.sequence >= first_sequence and event.kind == .memory_write) text = std.fmt.bufPrint(&overlay.text, "[{X:0>4}] <- {X:0>2}", .{ event.address, event.data }) catch "";
+        };
+        if (text.len == 0) {
+            const arrow = if (self.unicode_ui) "←" else "<-";
+            if (after.registers.hl() != before.registers.hl()) text = std.fmt.bufPrint(&overlay.text, "HL {s} {X:0>4}", .{ arrow, after.registers.hl() }) catch "" else if (after.registers.bc() != before.registers.bc()) text = std.fmt.bufPrint(&overlay.text, "BC {s} {X:0>4}", .{ arrow, after.registers.bc() }) catch "" else if (after.registers.de() != before.registers.de()) text = std.fmt.bufPrint(&overlay.text, "DE {s} {X:0>4}", .{ arrow, after.registers.de() }) catch "" else if (after.registers.sp != before.registers.sp) text = std.fmt.bufPrint(&overlay.text, "SP {s} {X:0>4}", .{ arrow, after.registers.sp }) catch "" else if (after.registers.af() != before.registers.af()) text = std.fmt.bufPrint(&overlay.text, "AF {s} {X:0>4}", .{ arrow, after.registers.af() }) catch "" else if (after.halted and !before.halted) text = std.fmt.bufPrint(&overlay.text, "HALT", .{}) catch "";
+        }
+        overlay.len = text.len;
+        if (overlay.len > 0) self.execution_overlay = overlay;
+    }
+
+    fn focusPane(self: *AppState, forward: bool) void {
+        const current: usize = if (self.active_screen == .help) 0 else @intFromEnum(self.active_screen);
+        self.active_screen = if (forward)
+            @enumFromInt((current + 1) % 5)
+        else
+            @enumFromInt((current + 4) % 5);
+    }
+
     fn moveView(self: *AppState, direction: @import("command.zig").Direction) void {
         switch (self.active_screen) {
             .editor => switch (direction) {
-                .up => self.source.moveUp(),
-                .down => self.source.moveDown(),
-                .left => self.source.moveLeft(),
-                .right => self.source.moveRight(),
-                .home => self.source.moveHome(),
-                .end => self.source.moveEnd(),
-                .page_up => for (0..10) |_| self.source.moveUp(),
-                .page_down => for (0..10) |_| self.source.moveDown(),
+                .up => self.source.move(.up, false),
+                .down => self.source.move(.down, false),
+                .left => self.source.move(.left, false),
+                .right => self.source.move(.right, false),
+                .home => self.source.move(.home, false),
+                .end => self.source.move(.end, false),
+                .page_up => for (0..10) |_| self.source.move(.up, false),
+                .page_down => for (0..10) |_| self.source.move(.down, false),
             },
             .memory => switch (direction) {
                 .up => self.memory_address -%= 16,
@@ -475,3 +781,9 @@ pub const AppState = struct {
         }
     }
 };
+
+fn previousUtf8(text: []const u8, position: usize) usize {
+    var index = position - 1;
+    while (index > 0 and text[index] & 0xc0 == 0x80) : (index -= 1) {}
+    return index;
+}

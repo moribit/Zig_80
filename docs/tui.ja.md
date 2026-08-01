@@ -19,9 +19,9 @@ Windowsコンソールは拡張モジュールを分離していますが、現�
 
 ## 画面構成
 
-通常サイズでは、コマンドヘッダー、ソースエディター、CPU状態、下部パネル、ステータス行を表示します。ソースには行番号、PC、ブレークポイントを表示します。CPU領域にはレジスタ、フラグ、HALT状態、総T-state、現在命令を表示します。下部はBus、Memory、Display、Help、Diagnosticsを切り替えます。
+通常サイズではSource Editorへ横幅の約70%を割り当て、コードを主役にします。右側には縦型CPUカードとInstructionカードをコンパクトに配置し、下部はBus、Memory、Display、Help、Diagnosticsを切り替えます。
 
-小さい端末では、`Alt+1`から`Alt+5`でEditor、Debug、Memory、Bus、Displayを全面表示します。
+小さい端末では、`Ctrl+1`から`Ctrl+5`でSource、CPU、Memory、Bus、Displayを全面表示します。修飾付き数字をCSI-uで通知する端末が必要です。
 
 描画には再利用可能な前後2枚のFrame Bufferを使用します。WidgetはCellだけを書き、ANSIを生成しません。Rendererが差分を比較し、一つのバッファへANSI更新を構築して変更セルだけを出力します。`NO_COLOR`と`TERM=dumb`では色を無効化します。ASCII枠とASCII画面表示を使うため、色やUnicodeだけに意味を依存させません。
 
@@ -31,28 +31,52 @@ Windowsコンソールは拡張モジュールを分離していますが、現�
 |---|---|---|
 | `Ctrl+S` | 保存 | — |
 | `Ctrl+Q` | 終了 | `Ctrl+C` |
-| `F2` | アセンブル | `Ctrl+A` |
-| `F5` | リセットして実行 | `Ctrl+G` |
-| `F6` | 1命令ステップ | `Ctrl+N` |
-| `F7` | 継続 | `Ctrl+E` |
-| `F8` | 一時停止 | — |
-| `F9` | ソースブレークポイント切替 | `Ctrl+B` |
-| `Ctrl+R` | リセット | — |
-| `Ctrl+P` | Command Palette | — |
-| `Alt+1..5` | Editor、Debug、Memory、Bus、Display | — |
-| `?` / `F1` | Help | — |
+| `Ctrl+R` | アセンブル | Paletteの`assemble` |
+| `Ctrl+E` | リセットして実行 | Paletteの`run` |
+| `Ctrl+T` | 1命令ステップ | Paletteの`step` |
+| `Ctrl+Space` | 継続 | Paletteの`continue` |
+| `Esc` | 一時停止 | 入力モード中は先にキャンセル |
+| `Ctrl+B` | ソースブレークポイント切替 | Source外の`b` |
+| `Ctrl+P` | Command Palette | Source外の`:` |
+| `Tab` / `Shift+Tab` | SourceでIndent／解除 | Source外では次／前のPane |
+| `Ctrl+1..5` | Source、CPU、Memory、Bus、Display | — |
+| `Ctrl+Z` / `Ctrl+Y` | Undo／Redo | — |
+| `Ctrl+F` | 文字列のIncremental Search | — |
+| `Ctrl+]` | Label定義へ移動 | Label参照上のEnter |
+| `Alt+Left` / `Alt+Right` | Jump履歴を戻る／進む | — |
+| `Shift+Arrow` | Source選択範囲を拡張 | — |
+| `?` | Source外でHelp | Source内では`?`を入力 |
 
 矢印、Home、End、Delete、Backspace、Page Up、Page Downは編集中のViewを操作します。未保存状態での終了には2回目の`Ctrl+Q`が必要です。保存または別操作を行うと確認状態を解除します。
 
-Memoryでは矢印で開始アドレスを移動します。`G`で画面上に`Go to address: 0x____`を開き、16進4桁を入力してEnterで確定します。Backspaceで修正、Escapeでキャンセルし、それ以外の文字は無視します。HomeでPC、EndでHL、Page UpでSP、Page DownでVRAM `0xC000`へ移動します。
+Memoryでは矢印で開始アドレスを移動します。`g`で画面上に`Go to address: 0x____`を開き、16進4桁を入力してEnterで確定します。Backspaceで修正、Escapeでキャンセルし、それ以外の文字は無視します。HomeでPC、EndでHL、Page UpでSP、Page DownでVRAM `0xC000`へ移動します。
 
-Busではイベント選択、スクロール、最新イベントへの追従復帰、Enterによる対応ソースPCへの移動ができます。通常幅ではEvent GroupとLogical Waveformを同時表示し、Tabで両者のFocusを変えます。狭い端末ではTabで表示するBus subviewを切り替えます。すべての表示が選択位置と最新追従状態を共有します。
+Busでは`[`と`]`でイベントを選択し、Endで最新イベントへの追従へ戻り、Enterで対応ソースPCへ移動します。通常幅ではEvent GroupとLogical Waveformを同時表示し、選択位置と最新追従状態を共有します。
 
 ## アセンブルとデバッグ
 
-空でないソースは開いた直後に自動アセンブルするため、最初のFrameからPC 0000の生成命令を表示します。失敗時はEditorを維持してDiagnosticsを表示します。その後の編集では即時アセンブルせずDIRTYにし、Sourceタイトルでロード済みbuildが古いことを示します。F2は保存せずアセンブルし、Ctrl+Sは保存後にアセンブルします。
+空でないソースは開いた直後に自動アセンブルするため、最初のFrameからPC 0000の生成命令を表示します。失敗時はEditorを維持してDiagnosticsを表示します。その後の編集では即時アセンブルせずDIRTYにし、Sourceタイトルでロード済みbuildが古いことを示します。Ctrl+Rは保存せずアセンブルし、Ctrl+Sは保存後にアセンブルします。
 
-Source GutterはBreakpoint (●)、現在PC (▶)、Diagnostics (!)、前回命令 (·)、編集Cursor (▏)の固定列を持ちます。十分な幅では生成Addressと最大3 byteも表示し、狭いPaneでは省略します。軽量ScannerがLabel、Directive、Mnemonic、Register、Number、Commentを色分けします。NO_COLORでも記号の意味は残ります。
+Source GutterはBreakpoint (●)、現在PC (▶)、Diagnostics (!)、前回命令 (▲)、編集Cursor (┃)の独立した固定列を持ちます。十分な幅では生成Addressと最大3 byteも表示し、狭いPaneでは省略します。
+
+### Z80専用Source編集
+
+Gutterは`BP`、`PC`、Diagnostic、Last Executed、編集Cursor、`LINE`、`ADDR`、`BYTES`を独立列に分離します。編集Cursor (`┃`)、現在PC (`▶`)、Breakpoint (`●`)、Diagnostic (`!`)、前回実行命令 (`▲`)は互いに上書きしません。現在PCのSourceだけを控えめに強調し、十分な横幅では生成Machine CodeもSource右側へ薄く表示します。
+
+Assemblerと独立した軽量TokenizerはLabel、Mnemonic、Register、Number、Directive、Comment、String、Character Literalを分類します。128 slotの行CacheがSource行のhashとTokenを保持するため、変更のない表示行を毎Frame解析しません。`NO_COLOR`ではANSI色だけを除き、構造記号は保持します。
+
+補完は編集時に更新され、候補ごとのheap確保を行いません。
+
+- 命令位置ではMnemonicとDirectiveのprefixを提示します。
+- Operand位置では`PUSH`／`POP`、分岐条件、Jump先Source Label、`LD (`後のAddress Registerなどを形式に応じて絞ります。
+- `name:`と`name equ value`からSource全体のLabelを収集します。
+- Up／Downで候補を選び、Spaceは確定して区切りを追加し、Enterは改行せず確定します。
+
+Enterは前行のIndentを維持し、Label直後は4 spacesで命令本文を開始します。Tab／Shift+Tabは現在行または選択範囲をIndent／解除します。Shift+Arrowで選択し、Ctrl+Z／Ctrl+Yで上限64 snapshotのUndo／Redo履歴を移動します。
+
+Ctrl+FはRegexを使わないIncremental Search barを開き、Enterで次候補、Escapeで終了します。既知Label参照上のEnterまたはCtrl+]で定義へ移動し、Alt+Left／Alt+Rightで履歴を戻る／進むことができます。Command Paletteには`Go Line`、`Go Label`、`Rename Label`、`Search`、`Breakpoint`、`Assemble`、`Run`を統合しました。Renameはidentifier境界上の定義と参照を一括変更し、Comment、String、Character Literalを除外します。
+
+Assemblerの構造化Diagnosticは別Paneと共有したまま、Source上でも対象spanとmessageを表示します。編集CursorをMnemonicへ置くとPCを変更せずInstructionカードをその命令へ切り替えます。Step時は独立した編集Cursorを動かさず現在PCを自動Scrollし、実際に観測したRegister変更、Memory Write、`HALT`を実行行の右へ短時間表示します。`execution_overlay_enabled`で将来独立してON/OFFできる構造です。
 
 Assembleはメモリ上の編集内容に対して動作します。成功時は生成バイト、シンボル、ソース行／アドレス対応を保存し、CLI Coreと同じMachineへロードします。失敗時もテキストを保持し、ファイル、行、列、ソース行、hintを持つ共通の構造化診断を表示します。診断上でEnterを押すと該当行へ移動します。診断文字列は編集Bufferと独立して所有し、現在は最初のエラーで停止するもののAppStateは診断配列を保持します。CLIも同じ位置情報を使用します。
 
@@ -62,9 +86,9 @@ Runは1 UI tickあたり最大500命令の協調スライスで実行するた�
 
 Displayは既存の128×64、1bpp VRAMを、Machineで定義済みの画素配置から読みます。CPUやMachineへ端末描画処理は追加していません。
 
-CPU PaneはAF、BC、DE、HL、SP、PCを優先します。変更値には*と約1.2秒の一時強調を付けます。隣接するInstruction DetailはAddress、生成Bytes、Disassembly、byte長、Emulatorが使うTiming、教材向けの短いDescriptionを表示します。
+CPUカードはAF、BC、DE、HL、SP、PCを縦に並べ、読みやすい余白を確保します。変更値には*と約1.2秒の一時強調を付けます。隣接するInstructionカードはAddress、Opcode、Mnemonic、Length、Emulatorが使うTiming、教材向けDescription、Flags affectedを明示します。
 
-Focused Paneのタイトルは反転し、Headerは共通一覧ではなくPane固有キーへ切り替わります。Ctrl+PはAssemble、Run、Reset、Go Address、Toggle Breakpointを持つ固定長Command Paletteを開きます。操作結果は約2秒のToastで通知します。Status BarはEDIT/ASSEMBLED/RUNNING/PAUSED/HALTED/BREAKPOINT/FAULT/LIMIT、PC、命令数、T-state、Trace使用量、Dirtyを常時表示します。
+Focused Paneのタイトルは反転し、`Source (Dirty)`、`CPU (Paused)`、`Bus (0 events)`、`Instruction (0000)`のように状態を含みます。HeaderはPane固有キーへ切り替わります。Ctrl+PはSource移動／編集、実行、View切替、QuitをまとめたCommand Paletteを開きます。Sourceでは通常文字の`:・?・b・g`を入力できることを優先し、単一キーUI操作はSource外だけで有効です。PaletteはCtrl+P、BreakpointはCtrl+Bで常時操作できます。操作結果は約2秒のToastで通知します。Status Barは状態とDirtyをBadge風に示し、PC、命令数、T-state、Trace使用量を続けます。
 
 ## Bus Traceの精度
 
@@ -74,7 +98,7 @@ Coreの任意`TraceSink`はopcode fetch、即値operand read、memory read、mem
 
 一覧には命令番号、同一命令内の論理イベント番号、命令開始時の総T-state、種別、アドレス、データ、PC、モデル上の信号を表示します。`t_state_start`はアクセス時刻ではなく命令開始時のCPU総T-stateです。`t_state_count == 0`は未計測の論理アクセスを意味します。
 
-通常幅でBusへFocusすると本文全体を使用し、Event GroupとLogical Waveformを横に配置します。Event Groupは選択命令を構成するOpcode Fetch、Operand Read、Memory Writeなどを命令内index付きでまとめます。Tabは両者のFocusを変えますが、選択Eventは共有されます。
+通常幅でBusへFocusすると本文全体を使用し、Event GroupとLogical Waveformを横に配置します。Event Groupは選択命令を構成するOpcode Fetch、Operand Read、Memory Writeなどを命令内index付きでまとめます。
 
 Logical WaveformはM1、MREQ、IORQ、RD、WR、RFSH、Address、Data、Typeを表示します。各イベントは等幅の`Event slot`であり、継続時間を推測しません。選択列は反転表示されるため色を無効にしても判別できます。端末幅から表示スロット数を決め、描画時にリングバッファを複製しません。Eventが0件ならBus領域をGetting Startedの横へ縮小し、StepまたはRun後に自動で拡大します。UTF-8 localeでは線・block文字と自動生成したPane交点を使用し、それ以外はASCIIへフォールバックします。VCD出力は今後の検討対象です。
 
@@ -82,7 +106,9 @@ Logical WaveformはM1、MREQ、IORQ、RD、WR、RFSH、Address、Data、Typeを�
 
 ## 現在の制限
 
-- 補完、Undo/Redo、検索、マウス、複数ファイルには未対応です。
+- 補完は学習用に広いZ80語彙を提示しますが、現在のAssemblerが実装するのはドキュメント記載のsubsetです。`LDI`などを選択してもAssembler Diagnosticになる場合があります。
+- Searchは大文字小文字を区別するliteral検索です。Undo/Redoは編集のcoalescingではなく、上限付きSource全体snapshotを使用します。
+- Clipboard操作、マウス、複数ファイルには未対応です。
 - UTF-8を壊さず保持・編集しますが、全角文字や結合文字の端末表示幅はモデル化しません。
 - watchpoint、step over/out、time travel、非同期実行、実機USBデバッグはありません。
 - Bus Waveformのslotは論理アクセスであり、電気的・cycle-accurateな時間ではありません。I/O、refresh、interruptイベントはまだ生成しません。

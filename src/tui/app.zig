@@ -7,6 +7,7 @@ const Rect = @import("layout.zig").Rect;
 const Layout = @import("layout.zig").Layout;
 const flags = @import("../cpu/flags.zig");
 const disassembler = @import("../disassembler/disassembler.zig");
+const editor_syntax = @import("editor/syntax.zig");
 const video = @import("../machine/video.zig");
 const trace = @import("../trace/trace.zig");
 const bus_waveform = @import("bus_waveform.zig");
@@ -48,12 +49,12 @@ fn renderHeader(state: *const AppState, frame: *Frame, rect: Rect) void {
 fn contextHelp(state: *const AppState) []const u8 {
     if (state.palette.active) return "COMMANDS  Up/Down Select | Enter Execute | Esc Close";
     return switch (state.active_screen) {
-        .editor => "EDITOR  F2 Assemble | F5 Run | F9 Breakpoint | Ctrl+S Save | Ctrl+P Commands",
-        .debug => "CPU  F6 Step | F7 Continue | F8 Pause | Ctrl+R Reset | Ctrl+P Commands",
-        .memory => "MEMORY  G Address | P PC | H HL | Enter Confirm | Esc Cancel",
-        .bus => "BUS  Left/Right Event | Tab Focus List/Waveform | End Latest | Enter Source",
-        .display => "DISPLAY  Alt+1 Editor | Alt+2 CPU | Alt+3 Memory | Alt+4 Bus",
-        .help => "HELP  Alt+1..5 Focus Pane | Ctrl+P Commands | Ctrl+Q Quit",
+        .editor => "SOURCE  Ctrl+S Save | Ctrl+F Search | Ctrl+Z/Y Undo/Redo | Ctrl+P Commands | Tab Indent",
+        .debug => "CPU  Ctrl+T Step | Ctrl+Space Continue | Esc Pause | Tab Next | Shift+Tab Previous",
+        .memory => "MEMORY  g Address | P PC | H HL | Enter Confirm | Esc Cancel | Tab Next",
+        .bus => "BUS  [ ] Event | End Latest | Enter Follow Source | Tab Next Pane",
+        .display => "VRAM  Ctrl+1..5 View | Tab Next Pane | Shift+Tab Previous",
+        .help => "HELP  Ctrl+1..5 View | Ctrl+P Commands | Ctrl+Q Quit",
     };
 }
 
@@ -75,47 +76,77 @@ fn paneBox(state: *const AppState, frame: *Frame, rect: Rect, title: []const u8,
 }
 
 pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, if (state.source.dirty) " SOURCE - BUILD STALE " else " SOURCE ", state.active_screen == .editor);
+    var title_buffer: [64]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " SOURCE ({s}) ", .{if (state.source.dirty) "Dirty" else if (state.assembly != null) "Assembled" else "Edit"}) catch " SOURCE ";
+    paneBox(state, frame, rect, title, state.active_screen == .editor);
     if (rect.width < 18 or rect.height < 3) return;
     const show_code = rect.width >= 52;
-    const source_x = rect.x + if (show_code) @as(usize, 29) else 14;
-    const rows = rect.height - 2;
-    state.source.ensureVisible(rect.width -| (source_x - rect.x + 1), rows);
+    const source_x = rect.x + if (show_code) @as(usize, 31) else 16;
+    const rows = rect.height - 3;
     const cursor_line = state.source.lineAndColumn().line;
     const pc_line = state.sourceLineForPC(state.machine.cpu.registers.pc);
+    if (state.follow_pc and pc_line != null) {
+        const wanted = pc_line.? - 1;
+        if (wanted < state.source.scroll_y) state.source.scroll_y = wanted;
+        if (rows > 0 and wanted >= state.source.scroll_y + rows) state.source.scroll_y = wanted - rows + 1;
+    } else state.source.ensureVisible(rect.width -| (source_x - rect.x + 1), rows);
     const previous_line = if (state.debug_session.previous) |snapshot| state.sourceLineForPC(snapshot.registers.pc) else null;
+    frame.writeText(rect.x + 1, rect.y + 1, "BP PC ! ▲ ┃ LINE ADDR BYTES     SOURCE", .{ .bold = true });
     for (0..rows) |row| {
         const line_index = state.source.scroll_y + row;
         const text = state.source.lineSlice(line_index) orelse break;
-        const y = rect.y + 1 + row;
+        const y = rect.y + 2 + row;
         const cursor = line_index == cursor_line;
         const execution = pc_line != null and pc_line.? == line_index + 1;
         const prior = previous_line != null and previous_line.? == line_index + 1 and !execution;
         const error_line = diagnosticOnLine(state, line_index + 1);
         const line_info = lineInfo(state, line_index + 1);
         const breakpoint = if (line_info) |info| state.debug_session.breakpoints.contains(info.address) else false;
-        const base = Style{ .reverse = cursor };
+        const base = Style{ .bold = execution };
 
         if (breakpoint) frame.set(rect.x + 1, y, if (state.unicode_ui) '●' else '*', withFg(base, .red));
         if (execution) frame.set(rect.x + 3, y, if (state.unicode_ui) '▶' else '>', withFg(base, .green));
         if (error_line) {
             frame.set(rect.x + 5, y, '!', withFg(base, .red));
-        } else if (prior) frame.set(rect.x + 5, y, if (state.unicode_ui) '·' else '.', withFg(base, .yellow));
-        if (cursor) frame.set(rect.x + 6, y, if (state.unicode_ui) '▏' else '|', base);
-        frame.print(rect.x + 8, y, base, "{d: >4}", .{line_index + 1});
+        }
+        if (prior) frame.set(rect.x + 7, y, if (state.unicode_ui) '▲' else '^', withFg(base, .yellow));
+        if (cursor) frame.set(rect.x + 9, y, if (state.unicode_ui) '┃' else '|', base);
+        frame.print(rect.x + 11, y, base, "{d: >4}", .{line_index + 1});
 
         if (show_code) {
             if (line_info) |info| {
-                frame.print(rect.x + 13, y, base, "{X:0>4}", .{info.address});
+                frame.print(rect.x + 16, y, base, "{X:0>4}", .{info.address});
                 const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
-                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 18 + index * 3, y, base, "{X:0>2}", .{decoded.bytes[index]});
+                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 21 + index * 3, y, base, "{X:0>2}", .{decoded.bytes[index]});
             } else {
-                frame.writeText(rect.x + 13, y, "----", base);
+                frame.writeText(rect.x + 16, y, "----", base);
             }
         }
         const visible = if (state.source.scroll_x < text.len) text[state.source.scroll_x..] else "";
-        writeHighlighted(frame, source_x, y, visible, base);
+        const tokens = state.syntax_cache.tokens(line_index, text);
+        writeHighlighted(frame, source_x, y, text, state.source.scroll_x, tokens, base);
+        renderSelection(state, frame, source_x, y, line_index, text);
+
+        const suffix_x = source_x + codepointCount(visible) + 2;
+        var drew_overlay = false;
+        if (state.execution_overlay) |overlay| {
+            if (overlay.source_line == line_index + 1) {
+                frame.writeText(suffix_x, y, overlay.text[0..overlay.len], .{ .fg = .yellow, .bold = true });
+                drew_overlay = true;
+            }
+        }
+        if (!drew_overlay) if (line_info) |info| {
+            const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
+            if (suffix_x + decoded.size * 3 < rect.x + rect.width - 1) {
+                frame.writeText(suffix_x, y, "[", .{ .fg = .blue });
+                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(suffix_x + 1 + index * 3, y, .{ .fg = .blue }, "{X:0>2}", .{decoded.bytes[index]});
+                frame.writeText(suffix_x + 1 + decoded.size * 3, y, "]", .{ .fg = .blue });
+            }
+        };
+        renderInlineDiagnostic(state, frame, source_x, y, line_index, text);
     }
+    renderCompletion(state, frame, rect, source_x);
+    renderEditorPrompt(state, frame, rect);
 }
 
 fn lineInfo(state: *const AppState, source_line: usize) ?@import("../assembler/assembler.zig").LineInfo {
@@ -129,52 +160,94 @@ fn diagnosticOnLine(state: *const AppState, source_line: usize) bool {
     return false;
 }
 
-fn writeHighlighted(frame: *Frame, start_x: usize, y: usize, text: []const u8, base: Style) void {
-    var index: usize = 0;
-    var x = start_x;
-    while (index < text.len and x < frame.width) {
-        if (text[index] == ';') {
-            frame.writeText(x, y, text[index..], mergeStyle(base, .{ .fg = .green }));
-            return;
-        }
-        if (std.ascii.isWhitespace(text[index])) {
-            frame.set(x, y, text[index], base);
-            index += 1;
-            x += 1;
-            continue;
-        }
-        if (!std.ascii.isAlphanumeric(text[index]) and text[index] != '_' and text[index] != '.' and text[index] != '\'' and text[index] < 0x80) {
-            frame.set(x, y, text[index], base);
-            index += 1;
-            x += 1;
-            continue;
-        }
-        const begin = index;
-        if (text[index] >= 0x80) {
-            const length = std.unicode.utf8ByteSequenceLength(text[index]) catch 1;
-            index = @min(index + length, text.len);
-        } else while (index < text.len and (std.ascii.isAlphanumeric(text[index]) or text[index] == '_' or text[index] == '.' or text[index] == '\'')) : (index += 1) {}
-        const token = text[begin..index];
-        var style = base;
-        if (index < text.len and text[index] == ':') {
-            style = mergeStyle(base, .{ .fg = .magenta, .bold = true });
-        } else if (isOneOf(token, &.{ "org", "db", "dw", "equ" })) {
-            style = mergeStyle(base, .{ .fg = .blue, .bold = true });
-        } else if (isOneOf(token, &.{ "nop", "halt", "ret", "jp", "call", "jr", "push", "pop", "inc", "dec", "add", "sub", "cp", "ld" })) {
-            style = mergeStyle(base, .{ .fg = .cyan, .bold = true });
-        } else if (isOneOf(token, &.{ "a", "f", "b", "c", "d", "e", "h", "l", "af", "bc", "de", "hl", "sp", "pc", "z", "nz" })) {
-            style = mergeStyle(base, .{ .fg = .yellow });
-        } else if (token.len > 0 and (std.ascii.isDigit(token[0]) or token[0] == '\'' or token[0] == '$')) {
-            style = mergeStyle(base, .{ .fg = .green });
-        }
-        frame.writeText(x, y, token, style);
-        x += codepointCount(token);
+fn writeHighlighted(frame: *Frame, start_x: usize, y: usize, text: []const u8, scroll: usize, tokens: *const editor_syntax.TokenList, base: Style) void {
+    const visible = if (scroll < text.len) text[scroll..] else "";
+    frame.writeText(start_x, y, visible, base);
+    for (tokens.items[0..tokens.len]) |token| {
+        if (token.end <= scroll) continue;
+        const visible_start = @max(token.start, scroll);
+        const token_text = text[visible_start..token.end];
+        const color: @import("render/style.zig").Color = switch (token.kind) {
+            .label => .magenta,
+            .mnemonic => .cyan,
+            .register => .yellow,
+            .number => .green,
+            .directive => .blue,
+            .comment => .green,
+            .string => .magenta,
+            .character => .magenta,
+            .plain => .default,
+        };
+        frame.writeText(start_x + visible_start - scroll, y, token_text, mergeStyle(base, .{ .fg = color, .bold = token.kind == .label or token.kind == .mnemonic or token.kind == .directive }));
     }
 }
 
-fn isOneOf(token: []const u8, values: []const []const u8) bool {
-    for (values) |value| if (std.ascii.eqlIgnoreCase(token, value)) return true;
-    return false;
+fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, y: usize, line_index: usize, text: []const u8) void {
+    const range = state.source.selectionRange() orelse return;
+    const line_start = state.source.absoluteLineStart(line_index) orelse return;
+    const start = @max(range.start, line_start);
+    const end = @min(range.end, line_start + text.len);
+    if (start >= end) return;
+    const local_start = start - line_start;
+    const local_end = end - line_start;
+    for (local_start..local_end) |column| {
+        if (column < state.source.scroll_x) continue;
+        const x = source_x + column - state.source.scroll_x;
+        const cell = frame.get(x, y);
+        var style = cell.style;
+        style.reverse = !style.reverse;
+        frame.set(x, y, cell.codepoint, style);
+    }
+}
+
+fn renderInlineDiagnostic(state: *const AppState, frame: *Frame, source_x: usize, y: usize, line_index: usize, text: []const u8) void {
+    for (state.diagnostics_list.items) |owned| {
+        const diagnostic = owned.value;
+        if (diagnostic.line == null or diagnostic.line.? != line_index + 1) continue;
+        if (diagnostic.column) |column_one| {
+            const first = column_one -| 1;
+            const last = @min(diagnostic.end_column orelse column_one, text.len);
+            for (first..last) |column| {
+                if (column < state.source.scroll_x) continue;
+                const x = source_x + column - state.source.scroll_x;
+                const cell = frame.get(x, y);
+                frame.set(x, y, cell.codepoint, withFg(cell.style, .red));
+            }
+        }
+        const message_x = source_x + codepointCount(text) + 2;
+        frame.print(message_x, y, .{ .fg = .red, .bold = true }, "! {s}", .{diagnostic.message});
+        return;
+    }
+}
+
+fn renderCompletion(state: *const AppState, frame: *Frame, rect: Rect, source_x: usize) void {
+    if (!state.completion.active or state.editor_prompt.mode != .none) return;
+    const position = state.source.lineAndColumn();
+    if (position.line < state.source.scroll_y) return;
+    const row = position.line - state.source.scroll_y;
+    if (row >= rect.height - 3) return;
+    const x = source_x + position.column -| state.source.scroll_x;
+    const count = @min(state.completion.len, @as(usize, 6));
+    const width: usize = 18;
+    const y = rect.y + 3 + row;
+    if (y + count + 2 >= rect.y + rect.height or x + width >= rect.x + rect.width) return;
+    frame.fillRect(x, y, width, count + 2, ' ', .{});
+    frame.box(x, y, width, count + 2, " COMPLETE ", .{ .fg = .cyan });
+    for (0..count) |index| frame.print(x + 2, y + 1 + index, if (index == state.completion.selected) selected else .{}, "{s}", .{state.completion.item(index)});
+}
+
+fn renderEditorPrompt(state: *const AppState, frame: *Frame, rect: Rect) void {
+    if (state.editor_prompt.mode == .none or rect.height < 4) return;
+    const label = switch (state.editor_prompt.mode) {
+        .search => "Search",
+        .go_line => "Go line",
+        .go_label => "Go label",
+        .rename => "Rename to",
+        .none => "",
+    };
+    const y = rect.y + rect.height - 2;
+    frame.fillRect(rect.x + 1, y, rect.width - 2, 1, ' ', .{ .reverse = true });
+    frame.print(rect.x + 2, y, .{ .reverse = true, .bold = true }, "{s}: {s}_", .{ label, state.editor_prompt.text() });
 }
 
 fn codepointCount(text: []const u8) usize {
@@ -192,7 +265,7 @@ fn withFg(base: Style, color: @import("render/style.zig").Color) Style {
     return result;
 }
 
-fn renderCpuAndInstruction(state: *const AppState, frame: *Frame, rect: Rect) void {
+fn renderCpuAndInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
     if (rect.height < 10) {
         renderCpu(state, frame, rect);
         return;
@@ -203,27 +276,24 @@ fn renderCpuAndInstruction(state: *const AppState, frame: *Frame, rect: Rect) vo
 }
 
 pub fn renderCpu(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " CPU ", state.active_screen == .debug);
-    if (rect.width < 20 or rect.height < 4) return;
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " CPU ({s}) ", .{titleState(state.execution_state)}) catch " CPU ";
+    paneBox(state, frame, rect, title, state.active_screen == .debug);
+    if (rect.width < 14 or rect.height < 3) return;
     const r = state.machine.cpu.registers;
     const x = rect.x + 2;
     var y = rect.y + 1;
     renderPair(state, frame, x, y, "AF", r.af(), pairChanged(state, "a", "f"));
-    renderPair(state, frame, x + 13, y, "BC", r.bc(), pairChanged(state, "b", "c"));
     y += 1;
-    renderPair(state, frame, x, y, "DE", r.de(), pairChanged(state, "d", "e"));
-    renderPair(state, frame, x + 13, y, "HL", r.hl(), pairChanged(state, "h", "l"));
+    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "BC", r.bc(), pairChanged(state, "b", "c"));
     y += 1;
-    renderPair(state, frame, x, y, "SP", r.sp, state.debug_session.previous != null and state.debug_session.previous.?.registers.sp != r.sp);
-    renderPair(state, frame, x + 13, y, "PC", r.pc, state.debug_session.previous != null and state.debug_session.previous.?.registers.pc != r.pc);
+    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "DE", r.de(), pairChanged(state, "d", "e"));
     y += 1;
-    frame.print(x, y, registerStyle(state, "f"), "FLAGS S{d} Z{d} H{d} P{d} N{d} C{d}", .{ bit(r.f, flags.S), bit(r.f, flags.Z), bit(r.f, flags.H), bit(r.f, flags.PV), bit(r.f, flags.N), bit(r.f, flags.C) });
+    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "HL", r.hl(), pairChanged(state, "h", "l"));
     y += 1;
-    if (rect.width >= 42) {
-        frame.print(x, y, .{}, "Zero={s} Carry={s} Sign={s}", .{ onOff(r.f, flags.Z), onOff(r.f, flags.C), onOff(r.f, flags.S) });
-        y += 1;
-    }
-    if (y < rect.y + rect.height - 1) frame.print(x, y, .{}, "{s} | {d} instructions | {d} T", .{ if (state.machine.cpu.halted) "HALTED" else "ACTIVE", state.executed_instructions, state.machine.cpu.total_t_states });
+    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "SP", r.sp, state.debug_session.previous != null and state.debug_session.previous.?.registers.sp != r.sp);
+    y += 1;
+    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "PC", r.pc, state.debug_session.previous != null and state.debug_session.previous.?.registers.pc != r.pc);
 }
 
 fn renderPair(state: *const AppState, frame: *Frame, x: usize, y: usize, name: []const u8, value: u16, did_change: bool) void {
@@ -235,34 +305,38 @@ fn pairChanged(state: *const AppState, comptime high: []const u8, comptime low: 
     return state.debug_session.changedRegister(high) or state.debug_session.changedRegister(low);
 }
 
-fn registerStyle(state: *const AppState, comptime name: []const u8) Style {
-    return if (state.registerHighlightActive() and state.debug_session.changedRegister(name)) changed else .{};
-}
-
-fn bit(value: u8, mask: u8) u1 {
-    return @intFromBool(value & mask != 0);
-}
-
-fn onOff(value: u8, mask: u8) []const u8 {
-    return if (value & mask != 0) "on" else "off";
-}
-
-pub fn renderInstruction(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " INSTRUCTION DETAIL ", false);
+pub fn renderInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
+    const pc = state.inspectionAddress() orelse state.machine.cpu.registers.pc;
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " INSTRUCTION ({X:0>4}) ", .{pc}) catch " INSTRUCTION ";
+    paneBox(state, frame, rect, title, false);
     if (rect.width < 18 or rect.height < 3) return;
-    const pc = state.machine.cpu.registers.pc;
     const decoded = disassembler.decode(&state.machine.bus.memory, pc);
     var y = rect.y + 1;
-    frame.print(rect.x + 2, y, heading, "{X:0>4}  {s}", .{ pc, disassembler.text(&decoded) });
-    y += 1;
-    frame.writeText(rect.x + 2, y, "Bytes  ", .{ .bold = true });
-    for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 9 + index * 3, y, .{}, "{X:0>2}", .{decoded.bytes[index]});
+    frame.print(rect.x + 2, y, .{}, "Address      {X:0>4}", .{pc});
     y += 1;
     if (y < rect.y + rect.height - 1) {
-        frame.print(rect.x + 2, y, .{}, "Length {d} byte{s} | Timing {d} T (emulated)", .{ decoded.size, if (decoded.size == 1) "" else "s", instructionTiming(state, decoded.bytes[0]) });
-        y += 1;
+        frame.writeText(rect.x + 2, y, "Opcode       ", .{});
+        for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 15 + index * 3, y, .{}, "{X:0>2}", .{decoded.bytes[index]});
     }
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "{s}", .{instructionDescription(decoded.bytes[0])});
+    y += 1;
+    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, heading, "Mnemonic     {s}", .{disassembler.text(&decoded)});
+    y += 1;
+    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Length       {d} byte{s}", .{ decoded.size, if (decoded.size == 1) "" else "s" });
+    y += 1;
+    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Timing       {d} T (emulated)", .{instructionTiming(state, decoded.bytes[0])});
+    y += 1;
+    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Description  {s}", .{instructionDescription(decoded.bytes[0])});
+    y += 1;
+    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Flags        {s}", .{flagsAffected(decoded.bytes[0])});
+}
+
+fn flagsAffected(opcode: u8) []const u8 {
+    return switch (opcode) {
+        0xc6, 0x80...0x85, 0x87, 0xd6, 0x90...0x95, 0x97, 0xfe, 0xb8...0xbd, 0xbf => "S Z H PV N C",
+        0x3c, 0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x3d, 0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d => "S Z H PV N",
+        else => "None",
+    };
 }
 
 fn instructionTiming(state: *const AppState, opcode: u8) u16 {
@@ -330,14 +404,17 @@ pub fn renderGettingStarted(state: *const AppState, frame: *Frame, rect: Rect) v
     const left = Rect{ .x = rect.x, .y = rect.y, .width = split - rect.x + 1, .height = rect.height };
     const right = Rect{ .x = split, .y = rect.y, .width = rect.x + rect.width - split, .height = rect.height };
     paneBox(state, frame, left, " GETTING STARTED ", false);
-    frame.writeText(left.x + 2, left.y + 1, "F2 Assemble   F5 Run   F6 Step   Ctrl+P Commands", .{ .bold = true });
-    if (left.height > 3) frame.writeText(left.x + 2, left.y + 2, "Bus events appear after Step or Run.", .{});
+    frame.writeText(left.x + 2, left.y + 1, "QUICK ACTIONS", .{ .bold = true });
+    if (left.height > 3) frame.writeText(left.x + 2, left.y + 2, "Ctrl+R Assemble   Ctrl+E Run   Ctrl+T Step", .{});
+    if (left.height > 4) frame.writeText(left.x + 2, left.y + 3, "Ctrl+Space Continue   Ctrl+P Command Palette", .{});
     paneBox(state, frame, right, " BUS ", state.active_screen == .bus);
     frame.writeText(right.x + 2, right.y + 1, "Waiting for events", .{});
 }
 
 fn renderMemory(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " MEMORY ", state.active_screen == .memory);
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " MEMORY ({X:0>4}) ", .{state.memory_address}) catch " MEMORY ";
+    paneBox(state, frame, rect, title, state.active_screen == .memory);
     if (rect.width < 30 or rect.height < 3) return;
     var first_row = rect.y + 1;
     if (state.memory_input.active) {
@@ -359,7 +436,9 @@ fn renderMemory(state: *const AppState, frame: *Frame, rect: Rect) void {
 }
 
 pub fn renderBus(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " BUS: LOGICAL ONLY - NOT CYCLE ACCURATE ", state.active_screen == .bus);
+    var title_buffer: [80]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " BUS ({d} events) - LOGICAL ONLY / NOT CYCLE ACCURATE ", .{state.trace.len}) catch " BUS - LOGICAL ONLY / NOT CYCLE ACCURATE ";
+    paneBox(state, frame, rect, title, state.active_screen == .bus);
     if (rect.height < 4) return;
     if (state.trace.len == 0) {
         renderGettingStarted(state, frame, rect);
@@ -380,8 +459,10 @@ pub fn renderBus(state: *const AppState, frame: *Frame, rect: Rect) void {
 }
 
 fn renderGroupedEvents(state: *const AppState, frame: *Frame, rect: Rect, selected_index: usize) void {
-    paneBox(state, frame, rect, " EVENT GROUP ", state.active_screen == .bus and state.bus_view == .events);
     const selected_event = state.trace.getPtr(selected_index) orelse return;
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " INSTRUCTION #{d} ", .{selected_event.instruction_index}) catch " INSTRUCTION EVENTS ";
+    paneBox(state, frame, rect, title, state.active_screen == .bus and state.bus_view == .events);
     frame.print(rect.x + 2, rect.y + 1, .{ .bold = true }, "Instruction #{d}  PC={X:0>4}", .{ selected_event.instruction_index, selected_event.pc });
     var first = selected_index;
     while (first > 0) {
@@ -415,7 +496,7 @@ fn shortKind(kind: trace.BusEventKind) []const u8 {
 }
 
 fn renderDisplay(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " DISPLAY 128x64 ", state.active_screen == .display);
+    paneBox(state, frame, rect, " VRAM (128x64, 1bpp) ", state.active_screen == .display);
     const columns = @min(@as(usize, 64), rect.width -| 2);
     const rows = @min(@as(usize, 16), rect.height -| 2);
     for (0..rows) |row| for (0..columns) |column| {
@@ -431,9 +512,10 @@ fn renderHelp(state: *const AppState, frame: *Frame, rect: Rect) void {
     paneBox(state, frame, rect, " HELP ", state.active_screen == .help);
     const lines = [_][]const u8{
         "Ctrl+S Save | Ctrl+Q Quit | Ctrl+P Command Palette",
-        "F2 Assemble | F5 Run | F6 Step | F7 Continue | F8 Pause | F9 Breakpoint",
-        "Alt+1 Editor | Alt+2 CPU | Alt+3 Memory | Alt+4 Bus | Alt+5 Display",
-        "Markers: > current PC | * breakpoint | ! diagnostic | . previous instruction",
+        "Ctrl+R Assemble | Ctrl+E Run | Ctrl+T Step | Ctrl+Space Continue | Esc Pause",
+        "Tab Next Pane | Shift+Tab Previous | Ctrl+1..5 View",
+        "Source: Tab Indent | Shift+Arrow Select | Ctrl+F Search | Ctrl+] Definition",
+        "Markers: > current PC | * breakpoint | ! diagnostic | ^ previous | | edit cursor",
     };
     for (lines, 0..) |line, index| if (index + 1 < rect.height) frame.writeText(rect.x + 2, rect.y + 1 + index, line, .{});
 }
@@ -441,12 +523,12 @@ fn renderHelp(state: *const AppState, frame: *Frame, rect: Rect) void {
 pub fn renderStatus(state: *const AppState, frame: *Frame, rect: Rect) void {
     if (rect.height == 0) return;
     frame.fillRect(rect.x, rect.y, rect.width, rect.height, ' ', .{ .reverse = true });
-    frame.print(rect.x + 1, rect.y, .{ .reverse = true, .bold = true }, "{s} | PC {X:0>4} | I {d} | T {d} | TRACE {d}/4096 {d}% | {s}", .{ statusName(state.execution_state), state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len, state.trace.len * 100 / 4096, if (state.source.dirty) "DIRTY" else "CLEAN" });
+    frame.print(rect.x + 1, rect.y, .{ .reverse = true, .bold = true }, "[{s}] [{s}]  PC {X:0>4}  I {d}  T {d}  TRACE {d}/4096 {d}%", .{ statusName(state.execution_state), if (state.source.dirty) "DIRTY" else "CLEAN", state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len, state.trace.len * 100 / 4096 });
 }
 
 fn statusName(value: state_mod.ExecutionState) []const u8 {
     return switch (value) {
-        .empty => "EDIT",
+        .empty => "READY",
         .assembled => "ASSEMBLED",
         .running => "RUNNING",
         .paused => "PAUSED",
@@ -454,6 +536,19 @@ fn statusName(value: state_mod.ExecutionState) []const u8 {
         .breakpoint => "BREAKPOINT",
         .faulted => "FAULT",
         .limit_reached => "LIMIT",
+    };
+}
+
+fn titleState(value: state_mod.ExecutionState) []const u8 {
+    return switch (value) {
+        .empty => "Ready",
+        .assembled => "Assembled",
+        .running => "Running",
+        .paused => "Paused",
+        .halted => "Halted",
+        .breakpoint => "Breakpoint",
+        .faulted => "Fault",
+        .limit_reached => "Limit",
     };
 }
 
