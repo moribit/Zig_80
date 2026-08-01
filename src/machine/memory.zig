@@ -1,0 +1,9 @@
+pub const size = 65536;
+pub const program_start: u16 = 0x0000;
+pub const ram_start: u16 = 0x8000;
+pub const vram_start: u16 = 0xc000;
+pub const vram_end: u16 = 0xc3ff;
+pub const input_address: u16 = 0xc400;
+pub const frame_low: u16 = 0xc401;
+pub const frame_high: u16 = 0xc402;
+pub const random_address: u16 = 0xc403;
