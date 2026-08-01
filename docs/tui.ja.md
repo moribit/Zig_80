@@ -19,7 +19,7 @@ Windowsコンソールは拡張モジュールを分離していますが、現�
 
 ## 画面構成
 
-通常サイズではSource Editorへ横幅の約70%を割り当て、コードを主役にします。右側には縦型CPUカードとInstructionカードをコンパクトに配置し、下部はBus、Memory、Display、Help、Diagnosticsを切り替えます。
+通常サイズではSource Editorへ横幅の約70%を割り当て、コードを主役にします。右側にはグループ化したCPUカードとInstructionカードをコンパクトに配置し、下部はBus、Memory、Display、Help、Diagnosticsを切り替えます。2行Headerはアプリ名、ファイル、Modified状態だけに抑え、Pane固有HelpはStatus Barへ置きます。
 
 小さい端末では、`Ctrl+1`から`Ctrl+5`でSource、CPU、Memory、Bus、Displayを全面表示します。修飾付き数字をCSI-uで通知する端末が必要です。
 
@@ -63,6 +63,8 @@ Source GutterはBreakpoint (●)、現在PC (▶)、Diagnostics (!)、前回命�
 
 Gutterは`BP`、`PC`、Diagnostic、Last Executed、編集Cursor、`LINE`、`ADDR`、`BYTES`を独立列に分離します。編集Cursor (`┃`)、現在PC (`▶`)、Breakpoint (`●`)、Diagnostic (`!`)、前回実行命令 (`▲`)は互いに上書きしません。現在PCのSourceだけを控えめに強調し、十分な横幅では生成Machine CodeもSource右側へ薄く表示します。
 
+Marker、Line、Address、Bytesは固定幅と最低1文字の間隔を持ち、`│`で明確に区切ります。編集行はGutter先頭から右Marginまで、行末の空白Cellを含む一続きの低刺激なReverse帯で示します。現在PCは緑MarkerとSourceのBoldで表すため、同一行でも編集位置とは区別できます。Address、Bytes、Line Numberは共通の補助色、Labelは構造色とBoldへ統一しました。右端12〜18列はSourceをclipして余白とし、Execution／Diagnostic Overlayの安定した表示領域にします。
+
 Assemblerと独立した軽量TokenizerはLabel、Mnemonic、Register、Number、Directive、Comment、String、Character Literalを分類します。128 slotの行CacheがSource行のhashとTokenを保持するため、変更のない表示行を毎Frame解析しません。`NO_COLOR`ではANSI色だけを除き、構造記号は保持します。
 
 補完は編集時に更新され、候補ごとのheap確保を行いません。
@@ -84,11 +86,15 @@ Runは1 UI tickあたり最大500命令の協調スライスで実行するた�
 
 複数の協調スライスを通じたRunとContinueの既定上限は、総命令数10,000,000およびCPU総T-state 100,000,000です。どちらかへ達すると`LIMIT REACHED`へ遷移し、両カウンターを表示します。Resetはカウンターを消去します。Stepは明示的な上書き操作として定義し、上限停止後も1命令を実行してpaused状態になります。上限値は`ExecutionLimits`へ集約しているため、将来CLI引数や設定画面から差し替えられます。
 
-Displayは既存の128×64、1bpp VRAMを、Machineで定義済みの画素配置から読みます。CPUやMachineへ端末描画処理は追加していません。
+Displayは既存の128×64、1bpp VRAMを、Machineで定義済みの画素配置から読みます。CPUやMachineへ端末描画処理は追加していません。Command Paletteで1x／2x／4x（既定2x）を選び、2x以上では8 Pixel単位のGridを切り替えられます。大きな倍率はVRAM仕様を変えず、Cursor中心のViewportを使用します。
 
-CPUカードはAF、BC、DE、HL、SP、PCを縦に並べ、読みやすい余白を確保します。変更値には*と約1.2秒の一時強調を付けます。隣接するInstructionカードはAddress、Opcode、Mnemonic、Length、Emulatorが使うTiming、教材向けDescription、Flags affectedを明示します。
+状態行には解像度、形式、倍率、単調増加するVRAM更新Frame、直近更新の変更Pixel数、Display更新FPSを表示します。FPSはVRAM更新頻度であり、CPU実行速度や端末refresh頻度ではありません。Display Focus中は矢印でPixelを選び、x/y、VRAM Address、Bit、現在値を検査できます。変更Pixel、Instruction Card、Source Execution Overlay、Register差分は約300msの共通強調を持ちます。`NO_COLOR`ではDirty Pixelを一時記号へ置換し、Displayタイトルにも短時間の更新Markerを付けます。
 
-Focused Paneのタイトルは反転し、`Source (Dirty)`、`CPU (Paused)`、`Bus (0 events)`、`Instruction (0000)`のように状態を含みます。HeaderはPane固有キーへ切り替わります。Ctrl+PはSource移動／編集、実行、View切替、QuitをまとめたCommand Paletteを開きます。Sourceでは通常文字の`:・?・b・g`を入力できることを優先し、単一キーUI操作はSource外だけで有効です。PaletteはCtrl+P、BreakpointはCtrl+Bで常時操作できます。操作結果は約2秒のToastで通知します。Status Barは状態とDirtyをBadge風に示し、PC、命令数、T-state、Trace使用量を続けます。
+StepごとにTUI層で観測した命令結果を保存します。Source MarginはRegisterまたはMemoryの結果、CPUは現在値と前値、Busは最新Event、Displayは変更Pixelを示し、Coreへ端末固有動作を持ち込みません。上限付き命令Snapshot表により、選択Bus EventのPCとCPU前後状態を関連付け、VRAM Write選択時はDisplay inspectorもそのByteへ移動します。32行以上ではBus Focus中も通常DashboardにSource、CPU、Instructionを残し、短い端末では全Waveform行の可読性を優先してBusへ本文を一時的に割り当てます。
+
+CPUカードはControl Register (`PC`、`SP`)とGeneral Register (`AF`、`BC`、`DE`、`HL`)を分け、各Group間に空行を置き、最後にFlags sectionを配置します。変更値には*と約1.2秒の一時強調を付けます。隣接するInstructionカードはMnemonicを主見出しにし、Address、Opcode、Length、Timing、Description、FlagsのLabelを共通補助色、値を通常またはBoldへ統一します。
+
+Focused Paneのタイトルは反転し、`SOURCE (Assembled)`、`CPU (Halted)`、`BUS (7 events)`、`INSTRUCTION (0006)`のように状態を含みます。HeaderからShortcut一覧を削除し、Pane固有HelpはStatus Bar右側へ移しました。Ctrl+PはSource移動／編集、実行、View切替、QuitをまとめたCommand Paletteを開きます。Sourceでは通常文字の`:・?・b・g`を入力できることを優先し、単一キーUI操作はSource外だけで有効です。PaletteはCtrl+P、BreakpointはCtrl+Bで常時操作できます。操作結果は約2秒のToastで通知します。Status Barは状態／Dirty Badgeと、名前付きのPC、Instr、T-State、Trace metricを視覚的に分離します。
 
 ## Bus Traceの精度
 
@@ -98,9 +104,11 @@ Coreの任意`TraceSink`はopcode fetch、即値operand read、memory read、mem
 
 一覧には命令番号、同一命令内の論理イベント番号、命令開始時の総T-state、種別、アドレス、データ、PC、モデル上の信号を表示します。`t_state_start`はアクセス時刻ではなく命令開始時のCPU総T-stateです。`t_state_count == 0`は未計測の論理アクセスを意味します。
 
-通常幅でBusへFocusすると本文全体を使用し、Event GroupとLogical Waveformを横に配置します。Event Groupは選択命令を構成するOpcode Fetch、Operand Read、Memory Writeなどを命令内index付きでまとめます。
+通常幅でBusへFocusすると本文全体を使用し、Instruction CardとLogical Waveformを横に配置します。CardはPC、decodeしたMnemonic、Eventsの階層を作り、選択命令を構成するOpcode Fetch、Operand Read、Memory Writeなどを命令内index付きでまとめます。
 
-Logical WaveformはM1、MREQ、IORQ、RD、WR、RFSH、Address、Data、Typeを表示します。各イベントは等幅の`Event slot`であり、継続時間を推測しません。選択列は反転表示されるため色を無効にしても判別できます。端末幅から表示スロット数を決め、描画時にリングバッファを複製しません。Eventが0件ならBus領域をGetting Startedの横へ縮小し、StepまたはRun後に自動で拡大します。UTF-8 localeでは線・block文字と自動生成したPane交点を使用し、それ以外はASCIIへフォールバックします。VCD出力は今後の検討対象です。
+Logical WaveformはM1、MREQ、IORQ、RD、WR、RFSH、Address、Data、Typeを表示します。各イベントは等幅の`Event slot`であり、継続時間を推測しません。選択列は反転表示に加え`▼`と連続した`│` guide（ASCIIでは`v`／`|`）を持つため、色を無効にしても判別できます。端末幅から表示スロット数を決め、描画時にリングバッファを複製しません。Eventが0件ならBus領域をGetting Startedの横へ縮小し、StepまたはRun後に自動で拡大します。UTF-8 localeでは線・block文字と自動生成したPane交点を使用し、それ以外はASCIIへフォールバックします。VCD出力は今後の検討対象です。
+
+Command Paletteでは全Bus Event表示とMemory Writeのみの表示を選択できます。Filterは共有選択を維持したままGrouped List、Waveform Slot、矢印移動へ適用されます。Opcode Fetch、Operand Read、Memory Read、Memory Write、I/O Read、I/O Writeは、将来の設定UIに備えて独立したFilter fieldを持ちます。
 
 入力層はヒープ確保を行わない永続的な256 byte stream decoderを持ちます。未完了のUTF-8とescape sequenceを次のreadまで保持し、短い端末層timeout後にEscape単体を確定し、分割されたAlt入力も処理します。不正UTF-8、未知の完了sequence、overflowは後続入力を止めないよう破棄または上限内へ復旧します。
 
@@ -111,6 +119,7 @@ Logical WaveformはM1、MREQ、IORQ、RD、WR、RFSH、Address、Data、Typeを�
 - Clipboard操作、マウス、複数ファイルには未対応です。
 - UTF-8を壊さず保持・編集しますが、全角文字や結合文字の端末表示幅はモデル化しません。
 - watchpoint、step over/out、time travel、非同期実行、実機USBデバッグはありません。
+- 過去CPU状態の関連付けは直近4,096命令Snapshotまでです。Display同期は選択VRAM Byteを現在のMachine Memory上で示すもので、過去Frameを復元するTime Travelではありません。
 - Bus Waveformのslotは論理アクセスであり、電気的・cycle-accurateな時間ではありません。I/O、refresh、interruptイベントはまだ生成しません。
 - 診断は最初のアセンブルエラーで停止し、secondary noteやfix-it editはありません。
 - Resizeは`SIGWINCH`ではなく定期的な端末サイズ確認で検知します。

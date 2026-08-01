@@ -16,6 +16,7 @@ const Layout = @import("tui/layout.zig").Layout;
 const AppState = @import("tui/state.zig").AppState;
 const ExecutionState = @import("tui/state.zig").ExecutionState;
 const PromptMode = @import("tui/state.zig").PromptMode;
+const DisplayScale = @import("tui/state.zig").DisplayScale;
 const tui_app = @import("tui/app.zig");
 const bus_waveform = @import("tui/bus_waveform.zig");
 const Rect = @import("tui/layout.zig").Rect;
@@ -42,6 +43,20 @@ fn frameContains(frame: *const Frame, text: []const u8) bool {
             };
             if (matches) return true;
         }
+    }
+    return false;
+}
+
+fn frameRowContains(frame: *const Frame, y: usize, text: []const u8) bool {
+    if (y >= frame.height or text.len == 0) return false;
+    for (0..frame.width) |x| {
+        if (x + text.len > frame.width) break;
+        var matches = true;
+        for (text, 0..) |character, offset| if (frame.get(x + offset, y).codepoint != character) {
+            matches = false;
+            break;
+        };
+        if (matches) return true;
     }
     return false;
 }
@@ -429,6 +444,12 @@ test "logical bus waveform renders selection scrolling ascii and small terminals
         break;
     };
     try std.testing.expect(found_scrolled_selection);
+    var found_marker = false;
+    for (ascii.cells) |cell| if (cell.codepoint == 'v' or cell.codepoint == '|') {
+        found_marker = true;
+        break;
+    };
+    try std.testing.expect(found_marker);
     var tiny = try Frame.init(std.testing.allocator, 18, 5);
     defer tiny.deinit();
     bus_waveform.render(&tiny, Rect{ .x = 0, .y = 0, .width = 18, .height = 5 }, &state.trace, 0, false);
@@ -500,9 +521,15 @@ test "ide gutter renders markers generated address bytes and token styles" {
     defer frame.deinit();
     tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 90, .height = 8 });
     try std.testing.expectEqual(@as(u21, '▶'), frame.get(3, 2).codepoint);
-    try std.testing.expectEqual(@as(u21, '0'), frame.get(16, 2).codepoint);
-    try std.testing.expectEqual(@as(u21, '2'), frame.get(21, 2).codepoint);
-    try std.testing.expectEqual(@import("tui/render/style.zig").Color.cyan, frame.get(31, 2).style.fg);
+    try std.testing.expectEqual(@as(u21, '1'), frame.get(16, 2).codepoint);
+    try std.testing.expectEqual(@as(u21, '0'), frame.get(20, 2).codepoint);
+    try std.testing.expectEqual(@as(u21, '2'), frame.get(27, 2).codepoint);
+    try std.testing.expectEqual(@import("tui/render/style.zig").Color.cyan, frame.get(38, 2).style.fg);
+    try std.testing.expect(frame.get(1, 2).style.reverse);
+    try std.testing.expect(frame.get(88, 2).style.reverse);
+    try std.testing.expectEqual(@import("tui/render/style.zig").Color.blue, frame.get(20, 2).style.fg);
+    try std.testing.expectEqual(@as(u21, '│'), frame.get(11, 2).codepoint);
+    try std.testing.expectEqual(@as(u21, '│'), frame.get(18, 2).codepoint);
 
     state.source.moveEnd();
     try state.source.insert(' ');
@@ -512,16 +539,28 @@ test "ide gutter renders markers generated address bytes and token styles" {
 test "instruction detail shows address bytes mnemonic length timing and description" {
     var state = try AppState.init(std.testing.allocator, null, "ld hl, 0xC000\nhalt\n");
     defer state.deinit();
-    var frame = try Frame.init(std.testing.allocator, 52, 9);
+    var frame = try Frame.init(std.testing.allocator, 52, 11);
     defer frame.deinit();
-    tui_app.renderInstruction(&state, &frame, Rect{ .x = 0, .y = 0, .width = 52, .height = 9 });
-    try std.testing.expect(frameContains(&frame, "Address      0000"));
-    try std.testing.expect(frameContains(&frame, "Opcode       21"));
-    try std.testing.expect(frameContains(&frame, "Mnemonic     LD HL,0xC000"));
-    try std.testing.expect(frameContains(&frame, "Length       3 bytes"));
-    try std.testing.expect(frameContains(&frame, "Timing       10 T"));
-    try std.testing.expect(frameContains(&frame, "Description  Load an immediate"));
-    try std.testing.expect(frameContains(&frame, "Flags        None"));
+    tui_app.renderInstruction(&state, &frame, Rect{ .x = 0, .y = 0, .width = 52, .height = 11 });
+    try std.testing.expect(frameContains(&frame, "LD HL,0xC000"));
+    try std.testing.expect(frameContains(&frame, "ADDRESS"));
+    try std.testing.expect(frameContains(&frame, "OPCODE"));
+    try std.testing.expect(frameContains(&frame, "LENGTH"));
+    try std.testing.expect(frameContains(&frame, "TIMING"));
+    try std.testing.expect(frameContains(&frame, "DESCRIPTION"));
+    try std.testing.expect(frameContains(&frame, "FLAGS"));
+    try std.testing.expectEqual(@import("tui/render/style.zig").Color.blue, frame.get(2, 3).style.fg);
+}
+
+test "source visual hierarchy emphasizes labels and reserves a right margin" {
+    var state = try AppState.init(std.testing.allocator, null, "start:\n    nop\n");
+    defer state.deinit();
+    var frame = try Frame.init(std.testing.allocator, 100, 9);
+    defer frame.deinit();
+    tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 9 });
+    try std.testing.expectEqual(@import("tui/render/style.zig").Color.magenta, frame.get(38, 2).style.fg);
+    try std.testing.expect(frame.get(38, 2).style.bold);
+    try std.testing.expectEqual(@as(u21, ' '), frame.get(80, 3).codepoint);
 }
 
 test "cpu register changes highlight temporarily and expire" {
@@ -529,13 +568,15 @@ test "cpu register changes highlight temporarily and expire" {
     defer state.deinit();
     state.tickUi(100);
     state.step();
-    var frame = try Frame.init(std.testing.allocator, 50, 8);
+    var frame = try Frame.init(std.testing.allocator, 50, 9);
     defer frame.deinit();
-    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 8 });
+    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 9 });
     try std.testing.expect(frameContains(&frame, "HL C000 *"));
+    try std.testing.expect(frameContains(&frame, "REGISTERS"));
+    try std.testing.expect(frameContains(&frame, "FLAGS"));
     state.tickUi(1400);
     frame.clear();
-    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 8 });
+    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 9 });
     try std.testing.expect(!frameContains(&frame, "HL C000 *"));
 }
 
@@ -564,8 +605,9 @@ test "status bar reports execution counters trace usage and dirty state" {
     tui_app.renderStatus(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 1 });
     try std.testing.expect(frameContains(&frame, "ASSEMBLED"));
     try std.testing.expect(frameContains(&frame, "PC 0000"));
-    try std.testing.expect(frameContains(&frame, "TRACE 0/4096"));
+    try std.testing.expect(frameContains(&frame, "Trace 0/4096"));
     try std.testing.expect(frameContains(&frame, "DIRTY"));
+    try std.testing.expect(frameContains(&frame, "^F Search"));
 }
 
 test "frame borders merge into unicode junctions and ascii fallback" {
@@ -598,6 +640,8 @@ test "dynamic layout replaces empty bus with getting started and expands after t
     state.step();
     tui_app.render(&state, &frame);
     try std.testing.expect(frameContains(&frame, "INSTRUCTION #"));
+    try std.testing.expect(frameContains(&frame, "MNEMONIC"));
+    try std.testing.expect(frameContains(&frame, "EVENTS"));
     try std.testing.expect(frameContains(&frame, "LOGICAL WAVEFORM"));
 }
 
@@ -607,11 +651,18 @@ test "pane focus context help and command palette follow active state" {
     var frame = try Frame.init(std.testing.allocator, 100, 30);
     defer frame.deinit();
     tui_app.render(&state, &frame);
+    try std.testing.expect(frameRowContains(&frame, 0, "Zig_80 IDE"));
+    try std.testing.expect(frameRowContains(&frame, 1, "untitled.asm"));
+    try std.testing.expect(!frameRowContains(&frame, 0, "Ctrl+"));
+    try std.testing.expect(!frameRowContains(&frame, 1, "Ctrl+"));
+    try state.source.insert(' ');
+    tui_app.render(&state, &frame);
+    try std.testing.expect(frameRowContains(&frame, 1, "Modified"));
     try std.testing.expect(frame.get(3, 2).style.reverse); // SOURCE title
     try state.apply(.{ .switch_screen = .debug }, std.testing.io);
     tui_app.render(&state, &frame);
     try std.testing.expect(frame.get(73, 2).style.reverse); // CPU title
-    try std.testing.expect(frameContains(&frame, "CPU  Ctrl+T Step"));
+    try std.testing.expect(frameContains(&frame, "^T Step"));
     try state.apply(.next_pane, std.testing.io);
     try std.testing.expectEqual(command.Screen.memory, state.active_screen);
     try state.apply(.previous_pane, std.testing.io);
@@ -737,12 +788,13 @@ test "source frame renders completion inline code diagnostics overlay and select
     defer state.deinit();
     frame.clear();
     tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
-    try std.testing.expect(frameContains(&frame, "BP PC !"));
+    try std.testing.expect(frameContains(&frame, "SOURCE"));
     try std.testing.expect(frameContains(&frame, "[21 00 C0 ]"));
     state.source.move(.right, true);
     frame.clear();
     tui_app.renderSource(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
-    try std.testing.expect(frame.get(31, 2).style.reverse);
+    try std.testing.expect(!frame.get(38, 2).style.reverse); // selection contrasts with current-line highlight
+    try std.testing.expect(frame.get(86, 2).style.reverse); // highlight includes line-end and right margin
     state.source.selection_anchor = null;
     state.unicode_ui = false;
     state.step();
@@ -773,4 +825,82 @@ test "step follows an offscreen PC without moving the edit cursor" {
     try std.testing.expect(state.source.scroll_y > 0);
     try std.testing.expectEqual(edit_cursor, state.source.cursor);
     try std.testing.expect(frameContains(&frame, ">"));
+}
+
+test "display tracks scale status dirty pixels cursor grid and fps" {
+    var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nld (hl),1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.color_ui = false;
+    state.unicode_ui = false;
+    state.tickUi(100);
+    state.step();
+    state.step();
+    try std.testing.expectEqual(@as(u64, 1), state.display_frame);
+    try std.testing.expectEqual(@as(u16, 1), state.display_changed_pixels);
+    try std.testing.expect(state.display_dirty[0]);
+    try std.testing.expect(state.displayChangeActive());
+
+    state.active_screen = .display;
+    state.display_scale = .x2;
+    state.display_grid = true;
+    state.display_cursor_x = 0;
+    state.display_cursor_y = 0;
+    var frame = try Frame.init(std.testing.allocator, 90, 24);
+    defer frame.deinit();
+    tui_app.renderDisplay(&state, &frame, Rect{ .x = 0, .y = 0, .width = 90, .height = 24 });
+    try std.testing.expect(frameContains(&frame, "Scale 2x"));
+    try std.testing.expect(frameContains(&frame, "Changed 1 px"));
+    try std.testing.expect(frameContains(&frame, "VRAM ADDRESS"));
+    try std.testing.expect(frameContains(&frame, "C000"));
+    try std.testing.expect(frameContains(&frame, "VALUE  1"));
+    try std.testing.expect(frameContains(&frame, "DISPLAY *"));
+    try std.testing.expect(frameContains(&frame, "+"));
+
+    state.tickUi(1100);
+    try std.testing.expectEqual(@as(u16, 1), state.display_fps);
+    try std.testing.expect(!state.displayChangeActive());
+}
+
+test "display palette and bus filter synchronize selected instruction" {
+    var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nld (hl),1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.runFromReset();
+    state.runSlice(10);
+
+    try state.apply(.open_palette, std.testing.io);
+    state.palette.selected = 14;
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expectEqual(command.Screen.display, state.active_screen);
+    try std.testing.expectEqual(DisplayScale.x4, state.display_scale);
+
+    try state.apply(.open_palette, std.testing.io);
+    state.palette.selected = 17;
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expectEqual(command.Screen.bus, state.active_screen);
+    const selected = state.trace.get(state.selected_trace_event).?;
+    try std.testing.expectEqual(trace.BusEventKind.memory_write, selected.kind);
+    try std.testing.expectEqual(@as(?u16, selected.pc), state.linked_pc);
+    try std.testing.expectEqual(@as(u8, 0), state.display_cursor_x);
+    try std.testing.expectEqual(@as(u8, 0), state.display_cursor_y);
+
+    var frame = try Frame.init(std.testing.allocator, 100, 18);
+    defer frame.deinit();
+    tui_app.renderBus(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 18 });
+    try std.testing.expect(frameContains(&frame, "Filter: Memory Write"));
+    try std.testing.expect(frameContains(&frame, "WRITE"));
+
+    frame.clear();
+    tui_app.renderInstruction(&state, &frame, Rect{ .x = 0, .y = 0, .width = 42, .height = 12 });
+    try std.testing.expect(frameContains(&frame, "LD (HL),0x01"));
+
+    state.bus_filter = .{};
+    state.selected_trace_event = 0;
+    state.trace_follow = false;
+    try state.apply(.{ .move_cursor = .right }, std.testing.io);
+    frame.clear();
+    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 42, .height = 12 });
+    try std.testing.expect(frameContains(&frame, "CPU (Instruction #0)"));
+    try std.testing.expect(frameContains(&frame, "HL C000 * <0000"));
 }

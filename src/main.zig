@@ -67,6 +67,7 @@ fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
     out.flush() catch {};
     errout.flush() catch {};
     const color = environ.get("NO_COLOR") == null and !(if (environ.get("TERM")) |term| std.mem.eql(u8, term, "dumb") else false);
+    state.color_ui = color;
     tui_event_loop.run(io, allocator, &state, color) catch |err| switch (err) {
         error.NotATerminal => {
             try errout.writeAll("error: `zig80 tui` requires an interactive stdin and stdout TTY\n");

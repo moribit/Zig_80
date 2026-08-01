@@ -4,6 +4,7 @@ const assembler = @import("../assembler/assembler.zig");
 const diagnostics = @import("../assembler/diagnostics.zig");
 const Machine = @import("../machine/machine.zig").Machine;
 const DebugSession = @import("../debugger/session.zig").DebugSession;
+const CpuSnapshot = @import("../debugger/session.zig").CpuSnapshot;
 const SourceBuffer = @import("editor/buffer.zig").SourceBuffer;
 const TraceBuffer = @import("../trace/trace.zig").TraceBuffer;
 const Command = @import("command.zig").Command;
@@ -12,6 +13,35 @@ const editor_syntax = @import("editor/syntax.zig");
 
 pub const ExecutionState = enum { empty, assembled, paused, running, halted, breakpoint, limit_reached, faulted };
 pub const BusView = enum { events, waveform };
+
+pub const DisplayScale = enum(u8) { x1 = 1, x2 = 2, x4 = 4 };
+
+pub const BusFilter = packed struct {
+    opcode_fetch: bool = true,
+    operand_read: bool = true,
+    memory_read: bool = true,
+    memory_write: bool = true,
+    io_read: bool = true,
+    io_write: bool = true,
+    other: bool = true,
+    _padding: bool = false,
+
+    pub fn allows(self: BusFilter, kind: @import("../trace/trace.zig").BusEventKind) bool {
+        return switch (kind) {
+            .opcode_fetch => self.opcode_fetch,
+            .operand_read => self.operand_read,
+            .memory_read => self.memory_read,
+            .memory_write => self.memory_write,
+            .io_read => self.io_read,
+            .io_write => self.io_write,
+            .refresh, .interrupt_ack => self.other,
+        };
+    }
+
+    pub fn mask(self: BusFilter) u8 {
+        return @bitCast(self);
+    }
+};
 
 pub const ExecutionLimits = struct {
     pub const default_max_instructions: u64 = 10_000_000;
@@ -58,6 +88,12 @@ pub const ExecutionOverlay = struct {
     expires_at_ms: i64,
 };
 
+pub const InstructionSnapshot = struct {
+    instruction_index: u64,
+    before: CpuSnapshot,
+    after: CpuSnapshot,
+};
+
 pub const AppState = struct {
     allocator: std.mem.Allocator,
     source_path: ?[]u8 = null,
@@ -81,6 +117,7 @@ pub const AppState = struct {
     executed_instructions: u64 = 0,
     memory_input: MemoryAddressInput = .{},
     unicode_ui: bool = true,
+    color_ui: bool = true,
     ui_now_ms: i64 = 0,
     toast: ?Toast = null,
     palette: CommandPalette = .{},
@@ -94,6 +131,23 @@ pub const AppState = struct {
     execution_overlay_enabled: bool = true,
     follow_pc: bool = false,
     register_highlight_until_ms: i64 = 0,
+    instruction_highlight_until_ms: i64 = 0,
+    display_scale: DisplayScale = .x2,
+    display_grid: bool = false,
+    display_cursor_x: u8 = 0,
+    display_cursor_y: u8 = 0,
+    display_frame: u64 = 0,
+    display_changed_pixels: u16 = 0,
+    display_change_until_ms: i64 = 0,
+    display_snapshot: [1024]u8 = [_]u8{0} ** 1024,
+    display_dirty: [8192]bool = [_]bool{false} ** 8192,
+    display_fps: u16 = 0,
+    display_fps_window_ms: i64 = 0,
+    display_fps_window_frames: u16 = 0,
+    bus_filter: BusFilter = .{},
+    linked_pc: ?u16 = null,
+    linked_instruction_index: ?u64 = null,
+    instruction_snapshots: [4096]?InstructionSnapshot = [_]?InstructionSnapshot{null} ** 4096,
     quit_requested: bool = false,
     confirm_quit: bool = false,
     ignore_breakpoint_once: bool = false,
@@ -169,6 +223,10 @@ pub const AppState = struct {
         self.debug_session.reset(&self.machine);
         self.last_memory_write = null;
         self.executed_instructions = 0;
+        self.linked_pc = null;
+        self.linked_instruction_index = null;
+        @memset(&self.instruction_snapshots, null);
+        self.resetDisplayTracking();
     }
 
     pub fn runFromReset(self: *AppState) void {
@@ -211,7 +269,12 @@ pub const AppState = struct {
             return;
         };
         self.executed_instructions +|= 1;
+        if (self.debug_session.previous) |before| if (self.debug_session.current) |after| {
+            const instruction_index = self.machine.cpu.instruction_index -% 1;
+            self.instruction_snapshots[instruction_index % self.instruction_snapshots.len] = .{ .instruction_index = instruction_index, .before = before, .after = after };
+        };
         self.register_highlight_until_ms = self.ui_now_ms + 1200;
+        self.instruction_highlight_until_ms = self.ui_now_ms + 300;
         self.last_memory_write = null;
         for (0..self.trace.len) |index| {
             if (self.trace.get(index)) |event| {
@@ -219,8 +282,12 @@ pub const AppState = struct {
             }
         }
         self.updateExecutionOverlay(first_new_sequence);
+        self.updateDisplayTracking();
         self.follow_pc = true;
-        if (self.trace_follow and self.trace.len > 0) self.selected_trace_event = self.trace.len - 1;
+        if (self.trace_follow and self.trace.len > 0) {
+            self.selected_trace_event = self.trace.len - 1;
+            self.syncTraceSelection();
+        }
         if (result.halted) {
             self.execution_state = .halted;
             self.setStatus("HALT at PC=0x{X:0>4}", .{result.pc_after});
@@ -407,11 +474,23 @@ pub const AppState = struct {
 
     pub fn tickUi(self: *AppState, now_ms: i64) void {
         self.ui_now_ms = now_ms;
+        if (self.display_fps_window_ms == 0) self.display_fps_window_ms = now_ms;
+        const fps_elapsed = now_ms - self.display_fps_window_ms;
+        if (fps_elapsed >= 1000) {
+            const rate = @divTrunc(@as(i64, self.display_fps_window_frames) * 1000, @max(@as(i64, 1), fps_elapsed));
+            self.display_fps = @intCast(@min(@as(i64, 65535), rate));
+            self.display_fps_window_frames = 0;
+            self.display_fps_window_ms = now_ms;
+        }
         if (self.toast) |toast| {
             if (now_ms >= toast.expires_at_ms) self.toast = null;
         }
         if (self.execution_overlay) |overlay| {
             if (now_ms >= overlay.expires_at_ms) self.execution_overlay = null;
+        }
+        if (self.display_changed_pixels > 0 and now_ms >= self.display_change_until_ms) {
+            self.display_changed_pixels = 0;
+            @memset(&self.display_dirty, false);
         }
     }
 
@@ -426,7 +505,21 @@ pub const AppState = struct {
         return self.ui_now_ms < self.register_highlight_until_ms;
     }
 
-    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "quit" };
+    pub fn instructionHighlightActive(self: *const AppState) bool {
+        return self.ui_now_ms < self.instruction_highlight_until_ms;
+    }
+
+    pub fn displayChangeActive(self: *const AppState) bool {
+        return self.ui_now_ms < self.display_change_until_ms;
+    }
+
+    pub fn linkedSnapshot(self: *const AppState) ?InstructionSnapshot {
+        const instruction_index = self.linked_instruction_index orelse return null;
+        const snapshot = self.instruction_snapshots[instruction_index % self.instruction_snapshots.len] orelse return null;
+        return if (snapshot.instruction_index == instruction_index) snapshot else null;
+    }
+
+    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "display scale 1x", "display scale 2x", "display scale 4x", "display grid", "bus filter all", "bus filter memory write", "quit" };
 
     fn applyPalette(self: *AppState, action: Command, io: Io) !void {
         switch (action) {
@@ -452,6 +545,32 @@ pub const AppState = struct {
                     10 => self.active_screen = .display,
                     11 => self.active_screen = .bus,
                     12 => {
+                        self.display_scale = .x1;
+                        self.active_screen = .display;
+                    },
+                    13 => {
+                        self.display_scale = .x2;
+                        self.active_screen = .display;
+                    },
+                    14 => {
+                        self.display_scale = .x4;
+                        self.active_screen = .display;
+                    },
+                    15 => {
+                        self.display_grid = !self.display_grid;
+                        self.active_screen = .display;
+                    },
+                    16 => {
+                        self.bus_filter = .{};
+                        self.active_screen = .bus;
+                        self.alignTraceSelection();
+                    },
+                    17 => {
+                        self.bus_filter = .{ .opcode_fetch = false, .operand_read = false, .memory_read = false, .io_read = false, .io_write = false, .other = false };
+                        self.active_screen = .bus;
+                        self.alignTraceSelection();
+                    },
+                    18 => {
                         if (self.source.dirty and !self.confirm_quit) {
                             self.confirm_quit = true;
                             self.palette.active = true;
@@ -648,7 +767,13 @@ pub const AppState = struct {
         var overlay = ExecutionOverlay{ .source_line = source_line, .expires_at_ms = self.ui_now_ms + 1800 };
         var text: []const u8 = "";
         for (0..self.trace.len) |index| if (self.trace.get(index)) |event| {
-            if (event.sequence >= first_sequence and event.kind == .memory_write) text = std.fmt.bufPrint(&overlay.text, "[{X:0>4}] <- {X:0>2}", .{ event.address, event.data }) catch "";
+            if (event.sequence >= first_sequence and event.kind == .memory_write) {
+                const arrow = if (self.unicode_ui) "←" else "<-";
+                text = if (event.address >= 0xC000 and event.address < 0xC400)
+                    std.fmt.bufPrint(&overlay.text, "VRAM[{X:0>4}] {s} {X:0>2}", .{ event.address, arrow, event.data }) catch ""
+                else
+                    std.fmt.bufPrint(&overlay.text, "[{X:0>4}] {s} {X:0>2}", .{ event.address, arrow, event.data }) catch "";
+            }
         };
         if (text.len == 0) {
             const arrow = if (self.unicode_ui) "←" else "<-";
@@ -689,36 +814,37 @@ pub const AppState = struct {
                 .page_down => self.memory_address = 0xc000,
             },
             .bus => switch (direction) {
-                .up => {
-                    if (self.trace_follow and self.trace.len > 0) self.selected_trace_event = self.trace.len - 1;
-                    self.trace_follow = false;
-                    self.selected_trace_event -|= 1;
-                },
-                .down => {
-                    self.trace_follow = false;
-                    self.selected_trace_event = @min(self.selected_trace_event + 1, self.trace.len -| 1);
-                    if (self.trace.len > 0 and self.selected_trace_event == self.trace.len - 1) self.trace_follow = true;
-                },
+                .up, .left => self.selectFilteredEvent(false),
+                .down, .right => self.selectFilteredEvent(true),
                 .end, .page_down => {
-                    self.trace_follow = true;
                     self.selected_trace_event = self.trace.len -| 1;
+                    self.alignTraceSelection();
                 },
                 .home, .page_up => {
                     self.trace_follow = false;
                     self.selected_trace_event = 0;
+                    var index: usize = 0;
+                    while (index < self.trace.len) : (index += 1) if (self.trace.get(index)) |event| {
+                        if (self.bus_filter.allows(event.kind)) {
+                            self.selected_trace_event = index;
+                            break;
+                        }
+                    };
                 },
-                .left => {
-                    self.trace_follow = false;
-                    self.selected_trace_event -|= 1;
-                },
-                .right => {
-                    self.trace_follow = false;
-                    self.selected_trace_event = @min(self.selected_trace_event + 1, self.trace.len -| 1);
-                    if (self.trace.len > 0 and self.selected_trace_event == self.trace.len - 1) self.trace_follow = true;
-                },
+            },
+            .display => switch (direction) {
+                .up => self.display_cursor_y -|= 1,
+                .down => self.display_cursor_y = @min(self.display_cursor_y +| 1, 63),
+                .left => self.display_cursor_x -|= 1,
+                .right => self.display_cursor_x = @min(self.display_cursor_x +| 1, 127),
+                .home => self.display_cursor_x = 0,
+                .end => self.display_cursor_x = 127,
+                .page_up => self.display_cursor_y -|= 8,
+                .page_down => self.display_cursor_y = @min(self.display_cursor_y +| 8, 63),
             },
             else => {},
         }
+        if (self.active_screen == .bus) self.syncTraceSelection();
     }
 
     fn memoryCharacter(self: *AppState, codepoint: u21) void {
@@ -778,6 +904,102 @@ pub const AppState = struct {
         if (self.source.goToLine(source_line - 1)) {
             self.active_screen = .editor;
             self.setStatus("Moved to source line {d} for trace event #{d}", .{ source_line, event.sequence });
+        }
+    }
+
+    fn resetDisplayTracking(self: *AppState) void {
+        @memcpy(&self.display_snapshot, self.machine.bus.memory[0xC000..0xC400]);
+        @memset(&self.display_dirty, false);
+        self.display_changed_pixels = 0;
+        self.display_frame = 0;
+        self.display_fps = 0;
+        self.display_fps_window_frames = 0;
+        self.display_fps_window_ms = self.ui_now_ms;
+        self.display_change_until_ms = 0;
+    }
+
+    fn updateDisplayTracking(self: *AppState) void {
+        var changed: u16 = 0;
+        var began_change = false;
+        for (0..self.display_snapshot.len) |byte_index| {
+            const value = self.machine.bus.memory[0xC000 + byte_index];
+            const difference = value ^ self.display_snapshot[byte_index];
+            if (difference == 0) continue;
+            if (!began_change) {
+                @memset(&self.display_dirty, false);
+                began_change = true;
+            }
+            for (0..8) |bit| if (difference & (@as(u8, 1) << @intCast(bit)) != 0) {
+                const x = byte_index % 128;
+                const y = byte_index / 128 * 8 + bit;
+                self.display_dirty[y * 128 + x] = true;
+                changed +|= 1;
+            };
+            self.display_snapshot[byte_index] = value;
+        }
+        if (changed > 0) {
+            self.display_changed_pixels = changed;
+            self.display_frame +|= 1;
+            self.display_fps_window_frames +|= 1;
+            self.display_change_until_ms = self.ui_now_ms + 300;
+        }
+    }
+
+    fn syncTraceSelection(self: *AppState) void {
+        const event = self.trace.get(self.selected_trace_event) orelse return;
+        self.linked_pc = event.pc;
+        self.linked_instruction_index = event.instruction_index;
+        if (event.kind == .memory_write and event.address >= 0xC000 and event.address < 0xC400) {
+            const offset = event.address - 0xC000;
+            self.display_cursor_x = @intCast(offset % 128);
+            const byte_row: u8 = @intCast(offset / 128);
+            self.display_cursor_y = byte_row * 8 + if (event.data == 0) 0 else @ctz(event.data);
+        }
+    }
+
+    fn alignTraceSelection(self: *AppState) void {
+        if (self.trace.len == 0) return;
+        var index = @min(self.selected_trace_event, self.trace.len - 1);
+        while (true) {
+            const event = self.trace.get(index) orelse break;
+            if (self.bus_filter.allows(event.kind)) {
+                self.selected_trace_event = index;
+                self.trace_follow = index == self.trace.len - 1;
+                self.syncTraceSelection();
+                return;
+            }
+            if (index == 0) break;
+            index -= 1;
+        }
+        index = @min(self.selected_trace_event + 1, self.trace.len);
+        while (index < self.trace.len) : (index += 1) {
+            const event = self.trace.get(index) orelse continue;
+            if (self.bus_filter.allows(event.kind)) {
+                self.selected_trace_event = index;
+                self.trace_follow = index == self.trace.len - 1;
+                self.syncTraceSelection();
+                return;
+            }
+        }
+    }
+
+    fn selectFilteredEvent(self: *AppState, forward: bool) void {
+        if (self.trace.len == 0) return;
+        var index = if (self.trace_follow) self.trace.len - 1 else self.selected_trace_event;
+        self.trace_follow = false;
+        while (true) {
+            if (forward) {
+                if (index + 1 >= self.trace.len) break;
+                index += 1;
+            } else {
+                if (index == 0) break;
+                index -= 1;
+            }
+            const event = self.trace.get(index) orelse continue;
+            if (!self.bus_filter.allows(event.kind)) continue;
+            self.selected_trace_event = index;
+            self.trace_follow = index == self.trace.len - 1;
+            return;
         }
     }
 };

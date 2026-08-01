@@ -35,7 +35,9 @@ zig build run -- tui examples/pinpon.asm
 
 `Ctrl+E`で実行し、`Ctrl+5`またはCommand Paletteの`display`で、固定Paddle間をBallが往復する様子を確認できます。Escapeで一時停止します。このdemoは意図的に無限Loopしますが、TUIの実行上限は安全停止として有効です。
 
-Sourceを主役にしたTUIは通常画面の約70%をEditorに割り当て、Address/Bytes、現在PC、縦型のコンパクトなCPU／Instructionカード、論理Busアクセスを関連付けます。Pane Focusに応じてContext Helpが変化し、Fnキーを使わずCtrl+PのCommand Paletteを中心に操作します。Bus画面は命令単位にまとめたEventと等幅のLogical Waveformを横に表示します。この波形はcycle-accurateではありません。ToastとBadge風Status Barも差分描画を経由して操作結果と実行状態を伝えます。詳細は[TUIガイド](docs/tui.ja.md)を参照してください。
+Sourceを主役にしたTUIは通常画面の約70%をEditorに割り当て、補助色のAddress／Bytes、現在PC、Group化したCPU／Instructionカード、論理Busアクセスを関連付けます。静かなHeaderはFile状態だけを示し、Pane固有Context HelpはBadge風Status Barへ表示します。Fnキーを使わずCtrl+PのCommand Paletteを中心に操作します。Bus画面はInstruction Cardと等幅のLogical Waveformを横に表示します。この波形はcycle-accurateではありません。詳細は[TUIガイド](docs/tui.ja.md)を参照してください。
+
+Displayは128×64、1bpp出力をゲーム画面として扱い、1x／2x／4x倍率（既定2x）、任意Grid、Pixel検査、更新番号、変更Pixel数、Display更新FPSを表示します。Stepでは観測したSource実行結果、Register前後値、論理Bus Access、変更VRAM Pixelを関連付け、Bus選択時も命令PCと保存済みCPU状態へ同期します。Display倍率／GridとBus Filterは`Ctrl+P`から変更できます。
 
 Sourceは汎用テキストエディターではなくZ80専用です。キャッシュされたTokenからMnemonic、Register、Directive、Operand、Source Labelを文脈補完し、自動Indent、選択、Undo/Redo、Incremental Search、Label移動／Rename、Inline Diagnostic／Bytes、Stepで実際に起きた変化の短時間Overlayを提供します。
 

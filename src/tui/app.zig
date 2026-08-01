@@ -13,6 +13,9 @@ const trace = @import("../trace/trace.zig");
 const bus_waveform = @import("bus_waveform.zig");
 
 const heading = Style{ .fg = .cyan, .bold = true };
+const section_label = Style{ .fg = .blue };
+const auxiliary = Style{ .fg = .blue };
+const structural = Style{ .fg = .magenta, .bold = true };
 const changed = Style{ .fg = .yellow, .bold = true };
 const selected = Style{ .reverse = true };
 
@@ -25,7 +28,7 @@ pub fn render(state: *AppState, frame: *Frame) void {
         if (frame.width < 40 or frame.height < 10) {
             frame.writeText(1, @min(3, frame.height -| 1), "Terminal is too small. Recommended: 80x24", .{ .bold = true });
         } else renderCompact(state, frame, layout.source);
-    } else if (state.active_screen == .bus) {
+    } else if (state.active_screen == .bus and frame.height < 32) {
         renderBus(state, frame, .{ .x = 0, .y = layout.source.y, .width = frame.width, .height = layout.status.y - layout.source.y + 1 });
     } else {
         const source_rect = Rect{ .x = layout.source.x, .y = layout.source.y, .width = layout.source.width + 1, .height = layout.source.height + 1 };
@@ -41,21 +44,13 @@ pub fn render(state: *AppState, frame: *Frame) void {
 
 fn renderHeader(state: *const AppState, frame: *Frame, rect: Rect) void {
     if (rect.height == 0) return;
-    frame.fillRect(rect.x, rect.y, rect.width, rect.height, ' ', .{ .reverse = true });
-    frame.print(1, rect.y, .{ .reverse = true, .bold = true }, "Zig_80 IDE - {s}{s}", .{ if (state.source_path) |path| path else "untitled.asm", if (state.source.dirty) " *" else "" });
-    if (rect.height > 1) frame.writeText(1, rect.y + 1, contextHelp(state), .{});
-}
-
-fn contextHelp(state: *const AppState) []const u8 {
-    if (state.palette.active) return "COMMANDS  Up/Down Select | Enter Execute | Esc Close";
-    return switch (state.active_screen) {
-        .editor => "SOURCE  Ctrl+S Save | Ctrl+F Search | Ctrl+Z/Y Undo/Redo | Ctrl+P Commands | Tab Indent",
-        .debug => "CPU  Ctrl+T Step | Ctrl+Space Continue | Esc Pause | Tab Next | Shift+Tab Previous",
-        .memory => "MEMORY  g Address | P PC | H HL | Enter Confirm | Esc Cancel | Tab Next",
-        .bus => "BUS  [ ] Event | End Latest | Enter Follow Source | Tab Next Pane",
-        .display => "VRAM  Ctrl+1..5 View | Tab Next Pane | Shift+Tab Previous",
-        .help => "HELP  Ctrl+1..5 View | Ctrl+P Commands | Ctrl+Q Quit",
-    };
+    frame.fillRect(rect.x, rect.y, rect.width, rect.height, ' ', .{});
+    frame.writeText(rect.x + 1, rect.y, "Zig_80 IDE", heading);
+    if (rect.height > 1) {
+        const path_limit = if (state.source.dirty) rect.x + rect.width -| 14 else rect.x + rect.width -| 1;
+        writeTextClipped(frame, rect.x + 3, path_limit, rect.y + 1, if (state.source_path) |path| path else "untitled.asm", .{});
+        if (state.source.dirty) frame.writeText(rect.x + rect.width -| 13, rect.y + 1, if (state.unicode_ui) "● Modified" else "* Modified", .{ .fg = .yellow, .bold = true });
+    }
 }
 
 fn renderCompact(state: *AppState, frame: *Frame, rect: Rect) void {
@@ -80,8 +75,10 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
     const title = std.fmt.bufPrint(&title_buffer, " SOURCE ({s}) ", .{if (state.source.dirty) "Dirty" else if (state.assembly != null) "Assembled" else "Edit"}) catch " SOURCE ";
     paneBox(state, frame, rect, title, state.active_screen == .editor);
     if (rect.width < 18 or rect.height < 3) return;
-    const show_code = rect.width >= 52;
-    const source_x = rect.x + if (show_code) @as(usize, 31) else 16;
+    const show_code = rect.width >= 64;
+    const source_x = rect.x + if (show_code) @as(usize, 38) else 20;
+    const right_margin: usize = if (rect.width >= 90) 18 else if (rect.width >= 64) 12 else 2;
+    const source_limit = rect.x + rect.width -| (right_margin + 1);
     const rows = rect.height - 3;
     const cursor_line = state.source.lineAndColumn().line;
     const pc_line = state.sourceLineForPC(state.machine.cpu.registers.pc);
@@ -89,9 +86,9 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
         const wanted = pc_line.? - 1;
         if (wanted < state.source.scroll_y) state.source.scroll_y = wanted;
         if (rows > 0 and wanted >= state.source.scroll_y + rows) state.source.scroll_y = wanted - rows + 1;
-    } else state.source.ensureVisible(rect.width -| (source_x - rect.x + 1), rows);
-    const previous_line = if (state.debug_session.previous) |snapshot| state.sourceLineForPC(snapshot.registers.pc) else null;
-    frame.writeText(rect.x + 1, rect.y + 1, "BP PC ! ▲ ┃ LINE ADDR BYTES     SOURCE", .{ .bold = true });
+    } else state.source.ensureVisible(source_limit -| source_x, rows);
+    const previous_line = if (state.linked_pc) |pc| state.sourceLineForPC(pc) else if (state.debug_session.previous) |snapshot| state.sourceLineForPC(snapshot.registers.pc) else null;
+    renderGutterHeader(state, frame, rect, show_code, source_x);
     for (0..rows) |row| {
         const line_index = state.source.scroll_y + row;
         const text = state.source.lineSlice(line_index) orelse break;
@@ -102,7 +99,9 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
         const error_line = diagnosticOnLine(state, line_index + 1);
         const line_info = lineInfo(state, line_index + 1);
         const breakpoint = if (line_info) |info| state.debug_session.breakpoints.contains(info.address) else false;
-        const base = Style{ .bold = execution };
+        const base = Style{ .bold = execution, .reverse = cursor };
+        if (cursor) frame.fillRect(rect.x + 1, y, rect.width - 2, 1, ' ', base);
+        renderGutterSeparators(state, frame, rect, y, show_code, base);
 
         if (breakpoint) frame.set(rect.x + 1, y, if (state.unicode_ui) '●' else '*', withFg(base, .red));
         if (execution) frame.set(rect.x + 3, y, if (state.unicode_ui) '▶' else '>', withFg(base, .green));
@@ -111,42 +110,68 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
         }
         if (prior) frame.set(rect.x + 7, y, if (state.unicode_ui) '▲' else '^', withFg(base, .yellow));
         if (cursor) frame.set(rect.x + 9, y, if (state.unicode_ui) '┃' else '|', base);
-        frame.print(rect.x + 11, y, base, "{d: >4}", .{line_index + 1});
+        frame.print(rect.x + 13, y, mergeStyle(base, auxiliary), "{d: >4}", .{line_index + 1});
 
         if (show_code) {
             if (line_info) |info| {
-                frame.print(rect.x + 16, y, base, "{X:0>4}", .{info.address});
+                frame.print(rect.x + 20, y, mergeStyle(base, auxiliary), "{X:0>4}", .{info.address});
                 const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
-                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 21 + index * 3, y, base, "{X:0>2}", .{decoded.bytes[index]});
+                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
             } else {
-                frame.writeText(rect.x + 16, y, "----", base);
+                frame.writeText(rect.x + 20, y, "----", mergeStyle(base, auxiliary));
             }
         }
-        const visible = if (state.source.scroll_x < text.len) text[state.source.scroll_x..] else "";
         const tokens = state.syntax_cache.tokens(line_index, text);
-        writeHighlighted(frame, source_x, y, text, state.source.scroll_x, tokens, base);
-        renderSelection(state, frame, source_x, y, line_index, text);
+        writeHighlighted(frame, source_x, source_limit, y, text, state.source.scroll_x, tokens, base);
+        renderSelection(state, frame, source_x, source_limit, y, line_index, text);
 
-        const suffix_x = source_x + codepointCount(visible) + 2;
+        const suffix_x = source_limit;
         var drew_overlay = false;
         if (state.execution_overlay) |overlay| {
             if (overlay.source_line == line_index + 1) {
-                frame.writeText(suffix_x, y, overlay.text[0..overlay.len], .{ .fg = .yellow, .bold = true });
+                writeTextClipped(frame, suffix_x, rect.x + rect.width - 1, y, overlay.text[0..overlay.len], mergeStyle(base, .{ .fg = .yellow, .bold = true }));
                 drew_overlay = true;
             }
         }
         if (!drew_overlay) if (line_info) |info| {
             const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
             if (suffix_x + decoded.size * 3 < rect.x + rect.width - 1) {
-                frame.writeText(suffix_x, y, "[", .{ .fg = .blue });
-                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(suffix_x + 1 + index * 3, y, .{ .fg = .blue }, "{X:0>2}", .{decoded.bytes[index]});
-                frame.writeText(suffix_x + 1 + decoded.size * 3, y, "]", .{ .fg = .blue });
+                frame.writeText(suffix_x, y, "[", mergeStyle(base, auxiliary));
+                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(suffix_x + 1 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
+                frame.writeText(suffix_x + 1 + decoded.size * 3, y, "]", mergeStyle(base, auxiliary));
             }
         };
-        renderInlineDiagnostic(state, frame, source_x, y, line_index, text);
+        renderInlineDiagnostic(state, frame, source_x, source_limit, rect.x + rect.width - 1, y, line_index, text);
     }
     renderCompletion(state, frame, rect, source_x);
     renderEditorPrompt(state, frame, rect);
+}
+
+fn renderGutterHeader(state: *const AppState, frame: *Frame, rect: Rect, show_code: bool, source_x: usize) void {
+    const y = rect.y + 1;
+    frame.writeText(rect.x + 1, y, "B", section_label);
+    frame.writeText(rect.x + 3, y, "P", section_label);
+    frame.writeText(rect.x + 5, y, "!", section_label);
+    frame.writeText(rect.x + 7, y, "L", section_label);
+    frame.writeText(rect.x + 9, y, "E", section_label);
+    renderGutterSeparators(state, frame, rect, y, show_code, .{});
+    frame.writeText(rect.x + 13, y, "LINE", section_label);
+    if (show_code) {
+        frame.writeText(rect.x + 20, y, "ADDR", section_label);
+        frame.writeText(rect.x + 27, y, "BYTES", section_label);
+    }
+    frame.writeText(source_x, y, "SOURCE", heading);
+}
+
+fn renderGutterSeparators(state: *const AppState, frame: *Frame, rect: Rect, y: usize, show_code: bool, base: Style) void {
+    const separator: u21 = if (state.unicode_ui) '│' else '|';
+    const style = mergeStyle(base, auxiliary);
+    frame.set(rect.x + 11, y, separator, style);
+    frame.set(rect.x + 18, y, separator, style);
+    if (show_code) {
+        frame.set(rect.x + 25, y, separator, style);
+        frame.set(rect.x + 36, y, separator, style);
+    }
 }
 
 fn lineInfo(state: *const AppState, source_line: usize) ?@import("../assembler/assembler.zig").LineInfo {
@@ -160,9 +185,9 @@ fn diagnosticOnLine(state: *const AppState, source_line: usize) bool {
     return false;
 }
 
-fn writeHighlighted(frame: *Frame, start_x: usize, y: usize, text: []const u8, scroll: usize, tokens: *const editor_syntax.TokenList, base: Style) void {
+fn writeHighlighted(frame: *Frame, start_x: usize, limit_x: usize, y: usize, text: []const u8, scroll: usize, tokens: *const editor_syntax.TokenList, base: Style) void {
     const visible = if (scroll < text.len) text[scroll..] else "";
-    frame.writeText(start_x, y, visible, base);
+    writeTextClipped(frame, start_x, limit_x, y, visible, base);
     for (tokens.items[0..tokens.len]) |token| {
         if (token.end <= scroll) continue;
         const visible_start = @max(token.start, scroll);
@@ -178,11 +203,12 @@ fn writeHighlighted(frame: *Frame, start_x: usize, y: usize, text: []const u8, s
             .character => .magenta,
             .plain => .default,
         };
-        frame.writeText(start_x + visible_start - scroll, y, token_text, mergeStyle(base, .{ .fg = color, .bold = token.kind == .label or token.kind == .mnemonic or token.kind == .directive }));
+        const token_style = if (token.kind == .label) mergeStyle(base, structural) else mergeStyle(base, .{ .fg = color, .bold = token.kind == .mnemonic or token.kind == .directive });
+        writeTextClipped(frame, start_x + visible_start - scroll, limit_x, y, token_text, token_style);
     }
 }
 
-fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, y: usize, line_index: usize, text: []const u8) void {
+fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, limit_x: usize, y: usize, line_index: usize, text: []const u8) void {
     const range = state.source.selectionRange() orelse return;
     const line_start = state.source.absoluteLineStart(line_index) orelse return;
     const start = @max(range.start, line_start);
@@ -193,6 +219,7 @@ fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, y: us
     for (local_start..local_end) |column| {
         if (column < state.source.scroll_x) continue;
         const x = source_x + column - state.source.scroll_x;
+        if (x >= limit_x) continue;
         const cell = frame.get(x, y);
         var style = cell.style;
         style.reverse = !style.reverse;
@@ -200,7 +227,7 @@ fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, y: us
     }
 }
 
-fn renderInlineDiagnostic(state: *const AppState, frame: *Frame, source_x: usize, y: usize, line_index: usize, text: []const u8) void {
+fn renderInlineDiagnostic(state: *const AppState, frame: *Frame, source_x: usize, source_limit: usize, pane_limit: usize, y: usize, line_index: usize, text: []const u8) void {
     for (state.diagnostics_list.items) |owned| {
         const diagnostic = owned.value;
         if (diagnostic.line == null or diagnostic.line.? != line_index + 1) continue;
@@ -210,12 +237,15 @@ fn renderInlineDiagnostic(state: *const AppState, frame: *Frame, source_x: usize
             for (first..last) |column| {
                 if (column < state.source.scroll_x) continue;
                 const x = source_x + column - state.source.scroll_x;
+                if (x >= source_limit) continue;
                 const cell = frame.get(x, y);
                 frame.set(x, y, cell.codepoint, withFg(cell.style, .red));
             }
         }
-        const message_x = source_x + codepointCount(text) + 2;
-        frame.print(message_x, y, .{ .fg = .red, .bold = true }, "! {s}", .{diagnostic.message});
+        const message_x = source_limit;
+        const message_style = mergeStyle(frame.get(message_x, y).style, .{ .fg = .red, .bold = true });
+        frame.writeText(message_x, y, "! ", message_style);
+        writeTextClipped(frame, message_x + 2, pane_limit, y, diagnostic.message, message_style);
         return;
     }
 }
@@ -250,8 +280,15 @@ fn renderEditorPrompt(state: *const AppState, frame: *Frame, rect: Rect) void {
     frame.print(rect.x + 2, y, .{ .reverse = true, .bold = true }, "{s}: {s}_", .{ label, state.editor_prompt.text() });
 }
 
-fn codepointCount(text: []const u8) usize {
-    return std.unicode.utf8CountCodepoints(text) catch text.len;
+fn writeTextClipped(frame: *Frame, x_start: usize, limit_x: usize, y: usize, text: []const u8, style: Style) void {
+    if (x_start >= limit_x or y >= frame.height) return;
+    var view = std.unicode.Utf8View.init(text) catch return;
+    var iterator = view.iterator();
+    var x = x_start;
+    while (x < limit_x) : (x += 1) {
+        const codepoint = iterator.nextCodepoint() orelse break;
+        frame.set(x, y, codepoint, style);
+    }
 }
 
 fn mergeStyle(base: Style, overlay: Style) Style {
@@ -270,65 +307,91 @@ fn renderCpuAndInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
         renderCpu(state, frame, rect);
         return;
     }
-    const cpu_height = @min(@as(usize, 8), rect.height - 4);
+    const cpu_height = @min(@as(usize, 9), rect.height - 5);
     renderCpu(state, frame, .{ .x = rect.x, .y = rect.y, .width = rect.width, .height = cpu_height });
     renderInstruction(state, frame, .{ .x = rect.x, .y = rect.y + cpu_height - 1, .width = rect.width, .height = rect.height - cpu_height + 1 });
 }
 
 pub fn renderCpu(state: *const AppState, frame: *Frame, rect: Rect) void {
     var title_buffer: [48]u8 = undefined;
-    const title = std.fmt.bufPrint(&title_buffer, " CPU ({s}) ", .{titleState(state.execution_state)}) catch " CPU ";
+    const linked_snapshot = state.linkedSnapshot();
+    const title = if (linked_snapshot) |snapshot|
+        std.fmt.bufPrint(&title_buffer, " CPU (Instruction #{d}) ", .{snapshot.instruction_index}) catch " CPU "
+    else
+        std.fmt.bufPrint(&title_buffer, " CPU ({s}) ", .{titleState(state.execution_state)}) catch " CPU ";
     paneBox(state, frame, rect, title, state.active_screen == .debug);
     if (rect.width < 14 or rect.height < 3) return;
-    const r = state.machine.cpu.registers;
+    const r = if (linked_snapshot) |snapshot| snapshot.after.registers else state.machine.cpu.registers;
+    const before = if (linked_snapshot) |snapshot| snapshot.before.registers else if (state.debug_session.previous) |snapshot| snapshot.registers else null;
     const x = rect.x + 2;
     var y = rect.y + 1;
-    renderPair(state, frame, x, y, "AF", r.af(), pairChanged(state, "a", "f"));
+    frame.writeText(x, y, "REGISTERS", section_label);
     y += 1;
-    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "BC", r.bc(), pairChanged(state, "b", "c"));
+    if (y < rect.y + rect.height - 1) {
+        renderPair(state, frame, x, y, "PC", r.pc, if (before) |old| old.pc else null, linked_snapshot != null);
+        if (rect.width >= 34) renderPair(state, frame, x + 16, y, "SP", r.sp, if (before) |old| old.sp else null, linked_snapshot != null);
+    }
     y += 1;
-    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "DE", r.de(), pairChanged(state, "d", "e"));
+    if (rect.width < 34 and y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "SP", r.sp, if (before) |old| old.sp else null, linked_snapshot != null);
     y += 1;
-    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "HL", r.hl(), pairChanged(state, "h", "l"));
+    if (y < rect.y + rect.height - 1) {
+        renderPair(state, frame, x, y, "AF", r.af(), if (before) |old| old.af() else null, linked_snapshot != null);
+        if (rect.width >= 34) renderPair(state, frame, x + 16, y, "BC", r.bc(), if (before) |old| old.bc() else null, linked_snapshot != null);
+    }
     y += 1;
-    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "SP", r.sp, state.debug_session.previous != null and state.debug_session.previous.?.registers.sp != r.sp);
+    if (y < rect.y + rect.height - 1) {
+        renderPair(state, frame, x, y, "DE", r.de(), if (before) |old| old.de() else null, linked_snapshot != null);
+        if (rect.width >= 34) renderPair(state, frame, x + 16, y, "HL", r.hl(), if (before) |old| old.hl() else null, linked_snapshot != null);
+    }
     y += 1;
-    if (y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "PC", r.pc, state.debug_session.previous != null and state.debug_session.previous.?.registers.pc != r.pc);
+    if (rect.width < 34 and y < rect.y + rect.height - 1) renderPair(state, frame, x, y, "BC", r.bc(), if (before) |old| old.bc() else null, linked_snapshot != null);
+    y += 1;
+    if (y < rect.y + rect.height - 1) {
+        frame.writeText(x, y, "FLAGS", section_label);
+        frame.print(x + 7, y, .{}, "S{d}Z{d}H{d}P{d}N{d}C{d}", .{ @intFromBool(r.f & flags.S != 0), @intFromBool(r.f & flags.Z != 0), @intFromBool(r.f & flags.H != 0), @intFromBool(r.f & flags.PV != 0), @intFromBool(r.f & flags.N != 0), @intFromBool(r.f & flags.C != 0) });
+    }
 }
 
-fn renderPair(state: *const AppState, frame: *Frame, x: usize, y: usize, name: []const u8, value: u16, did_change: bool) void {
-    const active_change = did_change and state.registerHighlightActive();
-    frame.print(x, y, if (active_change) changed else .{}, "{s} {X:0>4}{s}", .{ name, value, if (active_change) " *" else "" });
-}
-
-fn pairChanged(state: *const AppState, comptime high: []const u8, comptime low: []const u8) bool {
-    return state.debug_session.changedRegister(high) or state.debug_session.changedRegister(low);
+fn renderPair(state: *const AppState, frame: *Frame, x: usize, y: usize, name: []const u8, value: u16, old: ?u16, linked: bool) void {
+    const active_change = old != null and old.? != value and (linked or state.registerHighlightActive());
+    if (active_change) {
+        frame.print(x, y, changed, "{s} {X:0>4} * <{X:0>4}", .{ name, value, old.? });
+    } else frame.print(x, y, .{}, "{s} {X:0>4}", .{ name, value });
 }
 
 pub fn renderInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
-    const pc = state.inspectionAddress() orelse state.machine.cpu.registers.pc;
+    const pc = state.inspectionAddress() orelse state.linked_pc orelse state.machine.cpu.registers.pc;
     var title_buffer: [48]u8 = undefined;
     const title = std.fmt.bufPrint(&title_buffer, " INSTRUCTION ({X:0>4}) ", .{pc}) catch " INSTRUCTION ";
     paneBox(state, frame, rect, title, false);
     if (rect.width < 18 or rect.height < 3) return;
     const decoded = disassembler.decode(&state.machine.bus.memory, pc);
     var y = rect.y + 1;
-    frame.print(rect.x + 2, y, .{}, "Address      {X:0>4}", .{pc});
+    frame.print(rect.x + 2, y, if (state.instructionHighlightActive()) changed else heading, "{s}", .{disassembler.text(&decoded)});
+    y += 1;
+    if (rect.height >= 9) y += 1;
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "ADDRESS", "{X:0>4}", .{pc});
     y += 1;
     if (y < rect.y + rect.height - 1) {
-        frame.writeText(rect.x + 2, y, "Opcode       ", .{});
-        for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 15 + index * 3, y, .{}, "{X:0>2}", .{decoded.bytes[index]});
+        frame.writeText(rect.x + 2, y, "OPCODE", section_label);
+        for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 12 + index * 3, y, auxiliary, "{X:0>2}", .{decoded.bytes[index]});
     }
     y += 1;
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, heading, "Mnemonic     {s}", .{disassembler.text(&decoded)});
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "LENGTH", "{d} byte{s}", .{ decoded.size, if (decoded.size == 1) "" else "s" });
     y += 1;
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Length       {d} byte{s}", .{ decoded.size, if (decoded.size == 1) "" else "s" });
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "TIMING", "{d} T", .{instructionTiming(state, decoded.bytes[0])});
     y += 1;
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Timing       {d} T (emulated)", .{instructionTiming(state, decoded.bytes[0])});
+    if (y < rect.y + rect.height - 1) {
+        frame.writeText(rect.x + 2, y, "DESCRIPTION", section_label);
+        writeTextClipped(frame, rect.x + 15, rect.x + rect.width - 1, y, instructionDescription(decoded.bytes[0]), .{});
+    }
     y += 1;
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Description  {s}", .{instructionDescription(decoded.bytes[0])});
-    y += 1;
-    if (y < rect.y + rect.height - 1) frame.print(rect.x + 2, y, .{}, "Flags        {s}", .{flagsAffected(decoded.bytes[0])});
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "FLAGS", "{s}", .{flagsAffected(decoded.bytes[0])});
+}
+
+fn instructionField(frame: *Frame, rect: Rect, y: usize, label: []const u8, comptime fmt: []const u8, args: anytype) void {
+    frame.writeText(rect.x + 2, y, label, section_label);
+    frame.print(rect.x + 12, y, .{ .bold = true }, fmt, args);
 }
 
 fn flagsAffected(opcode: u8) []const u8 {
@@ -407,7 +470,7 @@ pub fn renderGettingStarted(state: *const AppState, frame: *Frame, rect: Rect) v
     frame.writeText(left.x + 2, left.y + 1, "QUICK ACTIONS", .{ .bold = true });
     if (left.height > 3) frame.writeText(left.x + 2, left.y + 2, "Ctrl+R Assemble   Ctrl+E Run   Ctrl+T Step", .{});
     if (left.height > 4) frame.writeText(left.x + 2, left.y + 3, "Ctrl+Space Continue   Ctrl+P Command Palette", .{});
-    paneBox(state, frame, right, " BUS ", state.active_screen == .bus);
+    paneBox(state, frame, right, " BUS (0 events) ", state.active_screen == .bus);
     frame.writeText(right.x + 2, right.y + 1, "Waiting for events", .{});
 }
 
@@ -436,15 +499,15 @@ fn renderMemory(state: *const AppState, frame: *Frame, rect: Rect) void {
 }
 
 pub fn renderBus(state: *const AppState, frame: *Frame, rect: Rect) void {
-    var title_buffer: [80]u8 = undefined;
-    const title = std.fmt.bufPrint(&title_buffer, " BUS ({d} events) - LOGICAL ONLY / NOT CYCLE ACCURATE ", .{state.trace.len}) catch " BUS - LOGICAL ONLY / NOT CYCLE ACCURATE ";
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " BUS ({d} events) ", .{state.trace.len}) catch " BUS ";
     paneBox(state, frame, rect, title, state.active_screen == .bus);
     if (rect.height < 4) return;
     if (state.trace.len == 0) {
         renderGettingStarted(state, frame, rect);
         return;
     }
-    frame.writeText(rect.x + 2, rect.y + 1, "Equal-width logical access slots; no electrical or T-state duration is inferred.", .{ .bold = true });
+    frame.print(rect.x + 2, rect.y + 1, .{ .fg = .yellow, .bold = true }, "LOGICAL ONLY / NOT CYCLE ACCURATE — equal-width event slots  Filter: {s}", .{busFilterName(state)});
     const selected_index = if (state.trace_follow) state.trace.len -| 1 else @min(state.selected_trace_event, state.trace.len -| 1);
     if (rect.width >= 70 and rect.height >= 6) {
         const split = rect.x + rect.width * 43 / 100;
@@ -452,9 +515,9 @@ pub fn renderBus(state: *const AppState, frame: *Frame, rect: Rect) void {
         const wave_rect = Rect{ .x = split, .y = rect.y + 2, .width = rect.x + rect.width - split, .height = rect.height - 2 };
         renderGroupedEvents(state, frame, list_rect, selected_index);
         paneBox(state, frame, wave_rect, " LOGICAL WAVEFORM ", state.active_screen == .bus and state.bus_view == .waveform);
-        bus_waveform.render(frame, wave_rect, &state.trace, selected_index, state.unicode_ui);
+        bus_waveform.renderFiltered(frame, wave_rect, &state.trace, selected_index, state.unicode_ui, state.bus_filter.mask());
     } else if (state.bus_view == .waveform) {
-        bus_waveform.render(frame, rect, &state.trace, selected_index, state.unicode_ui);
+        bus_waveform.renderFiltered(frame, rect, &state.trace, selected_index, state.unicode_ui, state.bus_filter.mask());
     } else renderGroupedEvents(state, frame, rect, selected_index);
 }
 
@@ -463,7 +526,14 @@ fn renderGroupedEvents(state: *const AppState, frame: *Frame, rect: Rect, select
     var title_buffer: [48]u8 = undefined;
     const title = std.fmt.bufPrint(&title_buffer, " INSTRUCTION #{d} ", .{selected_event.instruction_index}) catch " INSTRUCTION EVENTS ";
     paneBox(state, frame, rect, title, state.active_screen == .bus and state.bus_view == .events);
-    frame.print(rect.x + 2, rect.y + 1, .{ .bold = true }, "Instruction #{d}  PC={X:0>4}", .{ selected_event.instruction_index, selected_event.pc });
+    frame.writeText(rect.x + 2, rect.y + 1, "PC", section_label);
+    frame.print(rect.x + 13, rect.y + 1, .{ .bold = true }, "{X:0>4}", .{selected_event.pc});
+    const decoded = disassembler.decode(&state.machine.bus.memory, selected_event.pc);
+    if (rect.height > 3) {
+        frame.writeText(rect.x + 2, rect.y + 2, "MNEMONIC", section_label);
+        writeTextClipped(frame, rect.x + 13, rect.x + rect.width - 1, rect.y + 2, disassembler.text(&decoded), heading);
+    }
+    if (rect.height > 4) frame.writeText(rect.x + 2, rect.y + 3, "EVENTS", section_label);
     var first = selected_index;
     while (first > 0) {
         const previous = state.trace.getPtr(first - 1) orelse break;
@@ -472,14 +542,21 @@ fn renderGroupedEvents(state: *const AppState, frame: *Frame, rect: Rect, select
     }
     var row: usize = 0;
     var index = first;
-    while (index < state.trace.len and row < rect.height -| 3) : (index += 1) {
+    while (index < state.trace.len and row < rect.height -| 6) : (index += 1) {
         const event = state.trace.getPtr(index) orelse break;
         if (event.instruction_index != selected_event.instruction_index) break;
+        if (!state.bus_filter.allows(event.kind)) continue;
         const marker: u8 = if (index == selected_index) '>' else ' ';
-        frame.print(rect.x + 2, rect.y + 2 + row, if (index == selected_index) selected else .{}, "{c} {d}: {s:<12} {X:0>4} {X:0>2}", .{ marker, event.event_index_in_instruction, shortKind(event.kind), event.address, event.data });
+        frame.print(rect.x + 2, rect.y + 4 + row, if (index == selected_index) selected else .{}, "{c} {d}  {s:<12} {X:0>4} {X:0>2}", .{ marker, event.event_index_in_instruction, shortKind(event.kind), event.address, event.data });
         row += 1;
     }
-    if (rect.height > 3) frame.print(rect.x + 2, rect.y + rect.height - 2, .{}, "seq={d} | Enter: source", .{selected_event.sequence});
+    if (rect.height > 7) frame.print(rect.x + 2, rect.y + rect.height - 2, auxiliary, "Sequence {d}", .{selected_event.sequence});
+}
+
+fn busFilterName(state: *const AppState) []const u8 {
+    if (state.bus_filter.mask() == 0x7f) return "All";
+    if (state.bus_filter.memory_write and state.bus_filter.mask() == 0x08) return "Memory Write";
+    return "Custom";
 }
 
 fn shortKind(kind: trace.BusEventKind) []const u8 {
@@ -495,17 +572,91 @@ fn shortKind(kind: trace.BusEventKind) []const u8 {
     };
 }
 
-fn renderDisplay(state: *const AppState, frame: *Frame, rect: Rect) void {
-    paneBox(state, frame, rect, " VRAM (128x64, 1bpp) ", state.active_screen == .display);
-    const columns = @min(@as(usize, 64), rect.width -| 2);
-    const rows = @min(@as(usize, 16), rect.height -| 2);
-    for (0..rows) |row| for (0..columns) |column| {
-        var on = false;
-        for (0..4) |dy| for (0..2) |dx| if (video.pixel(&state.machine.bus, @intCast(column * 2 + dx), @intCast(row * 4 + dy))) {
-            on = true;
-        };
-        frame.set(rect.x + 1 + column, rect.y + 1 + row, if (on) '#' else '.', if (on) .{ .fg = .green, .bold = true } else .{});
+pub fn renderDisplay(state: *const AppState, frame: *Frame, rect: Rect) void {
+    var title_buffer: [48]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buffer, " DISPLAY{s} ", .{if (state.displayChangeActive()) (if (state.unicode_ui) " ●" else " *") else ""}) catch " DISPLAY ";
+    paneBox(state, frame, rect, title, state.active_screen == .display);
+    if (rect.width < 18 or rect.height < 5) return;
+    const scale: usize = @intFromEnum(state.display_scale);
+    var status_buffer: [96]u8 = undefined;
+    const status = std.fmt.bufPrint(&status_buffer, "128 x 64  1bpp  Scale {d}x  Frame {d:0>6}  Changed {d} px  FPS {d}", .{ scale, state.display_frame, state.display_changed_pixels, state.display_fps }) catch "";
+    writeTextClipped(frame, rect.x + 2, rect.x + rect.width - 1, rect.y + 1, status, auxiliary);
+
+    const show_info = state.active_screen == .display and rect.width >= 54;
+    const info_width: usize = if (show_info) 20 else 0;
+    const canvas = Rect{ .x = rect.x + 1, .y = rect.y + 2, .width = rect.width -| (2 + info_width), .height = rect.height -| 3 };
+    if (show_info) renderDisplayCursorInfo(state, frame, .{ .x = rect.x + rect.width - info_width - 1, .y = rect.y + 2, .width = info_width, .height = rect.height - 3 });
+
+    const pixels_per_cell_x: usize = if (scale == 1) 2 else 1;
+    const pixels_per_cell_y: usize = if (scale == 1) 4 else if (scale == 2) 2 else 1;
+    const cell_width: usize = if (scale == 4) 2 else 1;
+    const cell_height: usize = if (scale == 4) 2 else 1;
+    const visible_x = @min(@as(usize, 128), canvas.width / cell_width * pixels_per_cell_x);
+    const visible_y = @min(@as(usize, 64), canvas.height / cell_height * pixels_per_cell_y);
+    const origin_x = viewportOrigin(state.display_cursor_x, visible_x, 128);
+    const origin_y = viewportOrigin(state.display_cursor_y, visible_y, 64);
+    var py: usize = origin_y;
+    var cell_y: usize = 0;
+    while (py < origin_y + visible_y and cell_y * cell_height < canvas.height) : ({
+        py += pixels_per_cell_y;
+        cell_y += 1;
+    }) {
+        var px: usize = origin_x;
+        var cell_x: usize = 0;
+        while (px < origin_x + visible_x and cell_x * cell_width < canvas.width) : ({
+            px += pixels_per_cell_x;
+            cell_x += 1;
+        }) {
+            const visual = displayCell(state, px, py, pixels_per_cell_x, pixels_per_cell_y);
+            const x = canvas.x + cell_x * cell_width;
+            const y = canvas.y + cell_y * cell_height;
+            const cursor_here = state.active_screen == .display and state.display_cursor_x >= px and state.display_cursor_x < px + pixels_per_cell_x and state.display_cursor_y >= py and state.display_cursor_y < py + pixels_per_cell_y;
+            var style: Style = if (visual.dirty and state.displayChangeActive()) changed else if (visual.on) .{ .fg = .green, .bold = true } else .{};
+            if (cursor_here) style.reverse = true;
+            var symbol: u21 = if (visual.dirty and state.displayChangeActive() and !state.color_ui) (if (visual.on) '@' else '!') else visual.symbol;
+            if (state.display_grid and scale >= 2 and !visual.on and (px % 8 == 0 or py % 8 == 0)) symbol = if (state.unicode_ui) '·' else '+';
+            for (0..cell_height) |dy| for (0..cell_width) |dx| frame.set(x + dx, y + dy, symbol, style);
+        }
+    }
+}
+
+const DisplayCell = struct { symbol: u21, on: bool, dirty: bool };
+
+fn displayCell(state: *const AppState, x: usize, y: usize, width: usize, height: usize) DisplayCell {
+    var on = false;
+    var dirty = false;
+    var bits: u8 = 0;
+    for (0..height) |dy| for (0..width) |dx| {
+        if (x + dx >= 128 or y + dy >= 64) continue;
+        const value = video.pixel(&state.machine.bus, @intCast(x + dx), @intCast(y + dy));
+        on = on or value;
+        dirty = dirty or state.display_dirty[(y + dy) * 128 + x + dx];
+        if (value and width == 1 and height == 2) bits |= @as(u8, 1) << @intCast(dy);
     };
+    const symbol: u21 = if (width == 1 and height == 2 and state.unicode_ui)
+        (if (bits == 3) '█' else if (bits == 1) '▀' else if (bits == 2) '▄' else ' ')
+    else if (on) (if (state.unicode_ui) '█' else '#') else ' ';
+    return .{ .symbol = symbol, .on = on, .dirty = dirty };
+}
+
+fn viewportOrigin(cursor: u8, visible: usize, total: usize) usize {
+    if (visible >= total) return 0;
+    return @min(@as(usize, cursor) -| (visible / 2), total - visible);
+}
+
+fn renderDisplayCursorInfo(state: *const AppState, frame: *Frame, rect: Rect) void {
+    if (rect.width == 0) return;
+    const x = state.display_cursor_x;
+    const y = state.display_cursor_y;
+    const address: u16 = 0xC000 + @as(u16, y / 8) * 128 + x;
+    const value = video.pixel(&state.machine.bus, x, y);
+    frame.writeText(rect.x + 1, rect.y, "PIXEL", section_label);
+    if (rect.height > 1) frame.print(rect.x + 1, rect.y + 1, .{ .bold = true }, "{d},{d}", .{ x, y });
+    if (rect.height > 3) frame.writeText(rect.x + 1, rect.y + 3, "VRAM ADDRESS", section_label);
+    if (rect.height > 4) frame.print(rect.x + 1, rect.y + 4, .{ .bold = true }, "{X:0>4}", .{address});
+    if (rect.height > 6) frame.print(rect.x + 1, rect.y + 6, section_label, "BIT  {d}", .{y % 8});
+    if (rect.height > 7) frame.print(rect.x + 1, rect.y + 7, .{ .bold = true }, "VALUE  {d}", .{@intFromBool(value)});
+    if (rect.height > 9) frame.writeText(rect.x + 1, rect.y + 9, "Arrows: inspect", auxiliary);
 }
 
 fn renderHelp(state: *const AppState, frame: *Frame, rect: Rect) void {
@@ -523,7 +674,42 @@ fn renderHelp(state: *const AppState, frame: *Frame, rect: Rect) void {
 pub fn renderStatus(state: *const AppState, frame: *Frame, rect: Rect) void {
     if (rect.height == 0) return;
     frame.fillRect(rect.x, rect.y, rect.width, rect.height, ' ', .{ .reverse = true });
-    frame.print(rect.x + 1, rect.y, .{ .reverse = true, .bold = true }, "[{s}] [{s}]  PC {X:0>4}  I {d}  T {d}  TRACE {d}/4096 {d}%", .{ statusName(state.execution_state), if (state.source.dirty) "DIRTY" else "CLEAN", state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len, state.trace.len * 100 / 4096 });
+    const state_name = statusName(state.execution_state);
+    const dirty_name = if (state.source.dirty) "DIRTY" else "CLEAN";
+    frame.print(rect.x + 1, rect.y, statusBadgeStyle(state.execution_state), "[{s}]", .{state_name});
+    const dirty_x = rect.x + state_name.len + 4;
+    frame.print(dirty_x, rect.y, .{ .fg = if (state.source.dirty) .yellow else .green, .reverse = true, .bold = true }, "[{s}]", .{dirty_name});
+    var metrics_buffer: [160]u8 = undefined;
+    const metrics = std.fmt.bufPrint(&metrics_buffer, "PC {X:0>4}  Instr {d}  T-State {d}  Trace {d}/4096", .{ state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len }) catch "";
+    const metrics_x = dirty_x + dirty_name.len + 4;
+    frame.writeText(metrics_x, rect.y, metrics, .{ .reverse = true });
+    const help = statusHelp(state);
+    if (metrics_x - rect.x + metrics.len + help.len + 3 <= rect.width) frame.writeText(rect.x + rect.width - help.len - 2, rect.y, help, .{ .reverse = true });
+}
+
+fn statusBadgeStyle(value: state_mod.ExecutionState) Style {
+    return .{ .fg = switch (value) {
+        .running => .green,
+        .halted => .cyan,
+        .breakpoint, .limit_reached => .yellow,
+        .faulted => .red,
+        .paused => .blue,
+        .assembled => .cyan,
+        .empty => .default,
+    }, .reverse = true, .bold = true };
+}
+
+fn statusHelp(state: *const AppState) []const u8 {
+    if (state.palette.active) return "Up/Down Select  Enter Run  Esc Close";
+    if (state.editor_prompt.mode != .none) return "Enter Next/Confirm  Esc Cancel";
+    return switch (state.active_screen) {
+        .editor => "^S Save  ^F Search  ^P Palette",
+        .debug => "^T Step  ^E Run  Esc Pause",
+        .memory => "g Address  P PC  H HL",
+        .bus => "Arrows Select  Enter Follow",
+        .display => "^1..5 View  Tab Next",
+        .help => "^P Palette  ^Q Quit",
+    };
 }
 
 fn statusName(value: state_mod.ExecutionState) []const u8 {
