@@ -19,6 +19,16 @@ zig build run -- debug zig-out/pixel.bin
 zig build run -- test zig-out/pixel.bin
 ```
 
+## ターミナルUI
+
+アセンブリソースを指定して、依存ゼロのターミナルフロントエンドを起動できます。
+
+```console
+zig build run -- tui examples/pixel.asm
+```
+
+TUIではソースの編集と保存、CLIと共通のAPIによるアセンブル、共通Machineの実行とステップ、CPU状態、メモリ、仮想画面、ブレークポイント、診断、論理Bus Traceイベントの表示ができます。macOSまたはLinux上の対話的なANSI/VT100互換端末が必要です。非TTYでは制御シーケンスを出力せず終了します。画面構成、キー、Trace精度、制限は[TUIガイド](docs/tui.ja.md)を参照してください。
+
 実行には必ず命令数と T-state の既定上限があります。`run` では `--max-instructions N`、`--max-cycles N` で変更できます。`--screen` は終了時の画面を表示します。
 
 ## コマンド
@@ -65,6 +75,6 @@ zig build run -- test zig-out/pixel.bin
 
 ## 現在の制限とロードマップ
 
-MVP は Z80 全命令、CB/DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。ROM 範囲は現在書き込み保護されません。画面は実行終了時またはデバッガーで明示表示し、非TTY向け ANSI 更新は行いません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
+MVP は Z80 全命令、CB/DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
 
 次の優先事項は、命令メタデータの共有範囲拡大、詳細なテスト定義形式、ウォッチポイント、非ブロッキング実時間入力、CB prefix の順です。

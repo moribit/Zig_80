@@ -19,6 +19,16 @@ zig build run -- debug zig-out/pixel.bin
 zig build run -- test zig-out/pixel.bin
 ```
 
+## Terminal UI
+
+Open the dependency-free terminal frontend with an optional assembly source:
+
+```console
+zig build run -- tui examples/pixel.asm
+```
+
+The TUI edits and saves source, invokes the same assembler API as the CLI, runs or steps the shared Machine, and presents CPU state, memory, the virtual display, breakpoints, diagnostics, and logical Bus Trace events. It requires an interactive ANSI/VT100-compatible terminal on macOS or Linux; a non-TTY invocation fails without emitting control sequences. See [TUI Guide](docs/tui.md) for the layout, keys, trace accuracy, and current limitations.
+
 Execution always has default instruction and T-state limits. Use `--max-instructions N` and `--max-cycles N` with `run` to change them. `--screen` renders the display when execution stops.
 
 ## Commands
@@ -65,6 +75,6 @@ New instructions currently require corresponding additions to the CPU opcode fam
 
 ## Current limitations and roadmap
 
-The MVP does not support the complete Z80 instruction set, CB/DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The ROM range is not currently write-protected. The screen is rendered explicitly at program termination or from the debugger, without ANSI animation in non-TTY output. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
+The MVP does not support the complete Z80 instruction set, CB/DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
 
 Likely next areas include broader shared instruction metadata, a detailed program-test format, watchpoints, non-blocking real-time input, and CB-prefixed instructions.
