@@ -6,6 +6,8 @@ Zig_80 は、Z80 の命令、レジスタ、フラグ、メモリを観察しな
 
 プロジェクトの思想、実機を含む将来像、長期的な設計方針については、[ビジョンとアーキテクチャの方向性](docs/vision.ja.md) を参照してください。記載されている将来像は構想段階であり、実装予定を確約するものではありません。
 
+Z80、Assembly言語、CPU Hardwareが初めての場合は、[Zig_80入門チュートリアル](docs/tutorial.ja.md)から始めてください。1命令のROMから、Register、Memory、分岐、Stack、論理Bus Event、Input、1bpp DisplayのDebugまでを段階的に説明しています。
+
 ## ビルドとクイックスタート
 
 ```console

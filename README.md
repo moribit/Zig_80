@@ -6,6 +6,8 @@ Zig_80 is a dependency-free CLI environment for learning about the Z80 by observ
 
 For the project's principles, long-term direction, and possible path toward physical hardware, see [Vision and Architectural Direction](docs/vision.md). The future described there remains conceptual and is not a delivery commitment.
 
+New to the Z80, assembly language, or CPU hardware? Start with the comprehensive [Zig_80 Tutorial](docs/tutorial.md), which builds from a one-instruction ROM to debugging registers, memory, branches, the Stack, logical Bus events, input, and the 1bpp Display.
+
 ## Build and quick start
 
 ```console
