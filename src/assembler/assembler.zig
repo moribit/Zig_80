@@ -192,6 +192,15 @@ fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, operand
         }
         return emitImm8(allocator, output, opcode, @bitCast(@as(i8, @intCast(offset))));
     }
+    if (std.ascii.eqlIgnoreCase(mnemonic, "djnz")) {
+        const target = try eval(ops, symbols, pc, resolve);
+        var offset: i32 = 0;
+        if (resolve) {
+            offset = @as(i32, target) - (@as(i32, pc) + 2);
+            if (offset < -128 or offset > 127) return error.RelativeOutOfRange;
+        }
+        return emitImm8(allocator, output, 0x10, @bitCast(@as(i8, @intCast(offset))));
+    }
     if (std.ascii.eqlIgnoreCase(mnemonic, "push") or std.ascii.eqlIgnoreCase(mnemonic, "pop")) {
         const push = std.ascii.eqlIgnoreCase(mnemonic, "push");
         const opcode: u8 = if (std.mem.eql(u8, ops, "AF")) (if (push) 0xf5 else 0xf1) else if (std.mem.eql(u8, ops, "BC")) (if (push) 0xc5 else 0xc1) else if (std.mem.eql(u8, ops, "DE")) (if (push) 0xd5 else 0xd1) else if (std.mem.eql(u8, ops, "HL")) (if (push) 0xe5 else 0xe1) else return error.InvalidOperand;
@@ -199,23 +208,60 @@ fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, operand
     }
     if (std.ascii.eqlIgnoreCase(mnemonic, "inc") or std.ascii.eqlIgnoreCase(mnemonic, "dec")) {
         const inc = std.ascii.eqlIgnoreCase(mnemonic, "inc");
-        const opcode: u8 = if (std.mem.eql(u8, ops, "A")) (if (inc) 0x3c else 0x3d) else if (std.mem.eql(u8, ops, "B")) (if (inc) 0x04 else 0x05) else if (std.mem.eql(u8, ops, "C")) (if (inc) 0x0c else 0x0d) else if (std.mem.eql(u8, ops, "D")) (if (inc) 0x14 else 0x15) else if (std.mem.eql(u8, ops, "E")) (if (inc) 0x1c else 0x1d) else if (std.mem.eql(u8, ops, "H")) (if (inc) 0x24 else 0x25) else if (std.mem.eql(u8, ops, "L")) (if (inc) 0x2c else 0x2d) else if (std.mem.eql(u8, ops, "HL")) (if (inc) 0x23 else 0x2b) else return error.InvalidOperand;
+        const opcode: u8 = if (std.mem.eql(u8, ops, "A")) (if (inc) 0x3c else 0x3d) else if (std.mem.eql(u8, ops, "B")) (if (inc) 0x04 else 0x05) else if (std.mem.eql(u8, ops, "C")) (if (inc) 0x0c else 0x0d) else if (std.mem.eql(u8, ops, "D")) (if (inc) 0x14 else 0x15) else if (std.mem.eql(u8, ops, "E")) (if (inc) 0x1c else 0x1d) else if (std.mem.eql(u8, ops, "H")) (if (inc) 0x24 else 0x25) else if (std.mem.eql(u8, ops, "L")) (if (inc) 0x2c else 0x2d) else if (std.mem.eql(u8, ops, "HL")) (if (inc) 0x23 else 0x2b) else if (std.mem.eql(u8, ops, "(HL)")) (if (inc) 0x34 else 0x35) else return error.InvalidOperand;
+        return emit1(allocator, output, opcode);
+    }
+    if (std.ascii.eqlIgnoreCase(mnemonic, "add") and std.mem.startsWith(u8, ops, "HL,")) {
+        const opcode: u8 = if (std.mem.eql(u8, ops[3..], "BC")) 0x09 else if (std.mem.eql(u8, ops[3..], "DE")) 0x19 else if (std.mem.eql(u8, ops[3..], "HL")) 0x29 else if (std.mem.eql(u8, ops[3..], "SP")) 0x39 else return error.InvalidOperand;
         return emit1(allocator, output, opcode);
     }
     if (std.ascii.eqlIgnoreCase(mnemonic, "add") and std.mem.startsWith(u8, ops, "A,")) return encodeAlu(allocator, output, ops[2..], symbols, pc, resolve, 0x80, 0xc6);
+    if (std.ascii.eqlIgnoreCase(mnemonic, "adc") and std.mem.startsWith(u8, ops, "A,")) return encodeAluWithMemory(allocator, output, ops[2..], symbols, pc, resolve, 0x88, 0xce);
     if (std.ascii.eqlIgnoreCase(mnemonic, "sub")) return encodeAlu(allocator, output, ops, symbols, pc, resolve, 0x90, 0xd6);
+    if (std.ascii.eqlIgnoreCase(mnemonic, "sbc") and std.mem.startsWith(u8, ops, "A,")) return encodeAluWithMemory(allocator, output, ops[2..], symbols, pc, resolve, 0x98, 0xde);
     if (std.ascii.eqlIgnoreCase(mnemonic, "cp")) return encodeAlu(allocator, output, ops, symbols, pc, resolve, 0xb8, 0xfe);
     if (instruction.logicByMnemonic(mnemonic)) |family| {
         if (instruction.register8Code(ops)) |register_code| return emit1(allocator, output, family.register_base + register_code);
         return emitImm8(allocator, output, family.immediate_opcode, try eval8(ops, symbols, pc, resolve));
     }
     if (std.ascii.eqlIgnoreCase(mnemonic, "ld")) return encodeLd(allocator, output, ops, symbols, pc, resolve);
+    if (cbOperation(mnemonic)) |operation| return encodeCb(allocator, output, operation, ops, symbols, pc, resolve);
     return error.InvalidOperand;
 }
 
 fn encodeAlu(a: std.mem.Allocator, out: ?*Result, op: []const u8, syms: *Symbols, pc: u16, resolve: bool, base: u8, immediate: u8) AssembleError!u16 {
     if (regCode(op)) |r| return emit1(a, out, base + r);
     return emitImm8(a, out, immediate, try eval8(op, syms, pc, resolve));
+}
+
+fn encodeAluWithMemory(a: std.mem.Allocator, out: ?*Result, op: []const u8, syms: *Symbols, pc: u16, resolve: bool, base: u8, immediate: u8) AssembleError!u16 {
+    if (instruction.register8Code(op)) |r| return emit1(a, out, base + r);
+    return emitImm8(a, out, immediate, try eval8(op, syms, pc, resolve));
+}
+
+fn cbOperation(mnemonic: []const u8) ?instruction.CbOperation {
+    inline for (.{ .{ "RLC", instruction.CbOperation.rlc }, .{ "RRC", instruction.CbOperation.rrc }, .{ "RL", instruction.CbOperation.rl }, .{ "RR", instruction.CbOperation.rr }, .{ "SLA", instruction.CbOperation.sla }, .{ "SRA", instruction.CbOperation.sra }, .{ "SRL", instruction.CbOperation.srl }, .{ "BIT", instruction.CbOperation.bit }, .{ "RES", instruction.CbOperation.res }, .{ "SET", instruction.CbOperation.set } }) |entry| {
+        if (std.ascii.eqlIgnoreCase(mnemonic, entry[0])) return entry[1];
+    }
+    return null;
+}
+
+fn encodeCb(a: std.mem.Allocator, out: ?*Result, operation: instruction.CbOperation, ops: []const u8, syms: *Symbols, pc: u16, resolve: bool) AssembleError!u16 {
+    var bit: u3 = 0;
+    var register_text = ops;
+    if (operation == .bit or operation == .res or operation == .set) {
+        const comma = std.mem.indexOfScalar(u8, ops, ',') orelse return error.InvalidOperand;
+        const value = try eval8(ops[0..comma], syms, pc, resolve);
+        if (value > 7) return error.ValueOutOfRange;
+        bit = @truncate(value);
+        register_text = ops[comma + 1 ..];
+    }
+    const register = instruction.register8Code(register_text) orelse return error.InvalidOperand;
+    if (out) |o| {
+        try o.bytes.append(a, 0xcb);
+        try o.bytes.append(a, instruction.cbOpcode(operation, bit, register));
+    }
+    return 2;
 }
 
 fn encodeLd(a: std.mem.Allocator, out: ?*Result, ops: []const u8, syms: *Symbols, pc: u16, resolve: bool) AssembleError!u16 {

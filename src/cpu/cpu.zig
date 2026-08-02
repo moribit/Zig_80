@@ -46,6 +46,8 @@ pub const Cpu = struct {
                 bus.write8(self.registers.hl(), self.fetch8(bus));
                 break :blk 10;
             },
+            0x34 => self.incMemory(bus),
+            0x35 => self.decMemory(bus),
             0x3a => blk: {
                 const address = self.fetch16(bus);
                 self.registers.a = bus.readData8(address);
@@ -101,6 +103,13 @@ pub const Cpu = struct {
             0xe6 => self.logicImmediate(bus, .@"and"),
             0xee => self.logicImmediate(bus, .xor),
             0xf6 => self.logicImmediate(bus, .@"or"),
+            0x88...0x8f => self.adc(bus, op & 7),
+            0xce => self.adcImmediate(bus),
+            0x98...0x9f => self.sbc(bus, op & 7),
+            0xde => self.sbcImmediate(bus),
+            0x09, 0x19, 0x29, 0x39 => self.addHL(op),
+            0x10 => self.djnz(bus),
+            0xcb => try self.cb(bus),
             0xc3 => blk: {
                 self.registers.pc = self.fetch16(bus);
                 break :blk 10;
@@ -181,6 +190,20 @@ pub const Cpu = struct {
         self.registers.f = x.flags;
         return 4;
     }
+    fn incMemory(self: *Cpu, bus: *Bus) u16 {
+        const address = self.registers.hl();
+        const x = flags.inc8(bus.readData8(address), self.registers.f);
+        bus.write8(address, x.value);
+        self.registers.f = x.flags;
+        return 11;
+    }
+    fn decMemory(self: *Cpu, bus: *Bus) u16 {
+        const address = self.registers.hl();
+        const x = flags.dec8(bus.readData8(address), self.registers.f);
+        bus.write8(address, x.value);
+        self.registers.f = x.flags;
+        return 11;
+    }
     fn regValue(self: *Cpu, code: u8) u8 {
         return switch (code) {
             0 => self.registers.b,
@@ -222,6 +245,91 @@ pub const Cpu = struct {
         self.registers.a = result_value.value;
         self.registers.f = result_value.flags;
         return 7;
+    }
+    fn adc(self: *Cpu, bus: *Bus, source: u8) u16 {
+        const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
+        const x = flags.adc8(self.registers.a, value, flags.isSet(self.registers.f, flags.C));
+        self.registers.a = x.value;
+        self.registers.f = x.flags;
+        return if (source == 6) 7 else 4;
+    }
+    fn adcImmediate(self: *Cpu, bus: *Bus) u16 {
+        return self.adcValue(self.fetch8(bus));
+    }
+    fn adcValue(self: *Cpu, value: u8) u16 {
+        const x = flags.adc8(self.registers.a, value, flags.isSet(self.registers.f, flags.C));
+        self.registers.a = x.value;
+        self.registers.f = x.flags;
+        return 7;
+    }
+    fn sbc(self: *Cpu, bus: *Bus, source: u8) u16 {
+        const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
+        const x = flags.sbc8(self.registers.a, value, flags.isSet(self.registers.f, flags.C));
+        self.registers.a = x.value;
+        self.registers.f = x.flags;
+        return if (source == 6) 7 else 4;
+    }
+    fn sbcImmediate(self: *Cpu, bus: *Bus) u16 {
+        const x = flags.sbc8(self.registers.a, self.fetch8(bus), flags.isSet(self.registers.f, flags.C));
+        self.registers.a = x.value;
+        self.registers.f = x.flags;
+        return 7;
+    }
+    fn addHL(self: *Cpu, opcode: u8) u16 {
+        const rhs = switch (opcode) {
+            0x09 => self.registers.bc(),
+            0x19 => self.registers.de(),
+            0x29 => self.registers.hl(),
+            0x39 => self.registers.sp,
+            else => unreachable,
+        };
+        const x = flags.add16HL(self.registers.hl(), rhs, self.registers.f);
+        self.registers.setHL(x.value);
+        self.registers.f = x.flags;
+        return 11;
+    }
+    fn djnz(self: *Cpu, bus: *Bus) u16 {
+        const raw = self.fetch8(bus);
+        self.registers.b -%= 1;
+        if (self.registers.b == 0) return 8;
+        const offset: i8 = @bitCast(raw);
+        self.registers.pc +%= @bitCast(@as(i16, offset));
+        return 13;
+    }
+    fn cb(self: *Cpu, bus: *Bus) CpuError!u16 {
+        const opcode = self.fetch8(bus);
+        const register = opcode & 7;
+        const value = if (register == 6) bus.readData8(self.registers.hl()) else self.regValue(register);
+        const group = opcode >> 6;
+        if (group == 1) {
+            self.registers.f = flags.bitTest(@truncate((opcode >> 3) & 7), value, self.registers.f);
+            return instruction.cbTStates(.bit, register);
+        }
+        if (group == 2 or group == 3) {
+            const mask = @as(u8, 1) << @truncate((opcode >> 3) & 7);
+            const changed = if (group == 2) value & ~mask else value | mask;
+            if (register == 6) bus.write8(self.registers.hl(), changed) else self.setRegValue(register, changed);
+            return instruction.cbTStates(if (group == 2) .res else .set, register);
+        }
+        const operation: instruction.CbOperation = switch ((opcode >> 3) & 7) {
+            0 => .rlc,
+            1 => .rrc,
+            2 => .rl,
+            3 => .rr,
+            4 => .sla,
+            5 => .sra,
+            7 => .srl,
+            else => {
+                self.last_unknown_pc = self.registers.pc -% 2;
+                self.last_unknown_opcode = opcode;
+                self.registers.pc -%= 2;
+                return error.UnknownOpcode;
+            },
+        };
+        const changed = flags.rotateShift(operation, value, self.registers.f);
+        if (register == 6) bus.write8(self.registers.hl(), changed.value) else self.setRegValue(register, changed.value);
+        self.registers.f = changed.flags;
+        return instruction.cbTStates(operation, register);
     }
     fn add(self: *Cpu, v: u8, cycles: u16) u16 {
         const x = flags.add8(self.registers.a, v);

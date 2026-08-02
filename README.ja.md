@@ -78,7 +78,7 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ラベル、前方参照、`;` コメント、10進 (`42`)、16進 (`0x2A`)、2進 (`0b101010`)、文字 (`'A'`)、現在アドレス (`$`)、単純な `+`/`-` 式に対応します。ディレクティブは `org`、`db`、`dw`、`equ` です。`db "HELLO", 0` も使用できます。複数セグメント形式ではなく、`org` は論理アドレスを変更し、出力ファイルへパディングしません。
 
-対応命令はNOP、HALT、JP、条件JP (Z/NZ)、JR、条件JR (Z/NZ)、CALL、RET、即値/Memory LD、8 bit Registerと`(HL)`間の一般LD、INC/DEC、ADD A、SUB、CP、AND、XOR、OR、AF/BC/DE/HLのPUSH/POPです。算術/論理命令はS/Z/H/PV/N/Cを更新し、INC/DECはCを保存します。
+対応命令はNOP、HALT、JP/JR Z/NZ、DJNZ、CALL、RET、即値/Memory LD、8 bit Registerと`(HL)`間の一般LD、`(HL)`を含むINC/DEC、ADD A、ADC A、SUB、SBC A、CP、ADD HL、AND、XOR、OR、BIT/SET/RES、RLC/RRC/RL/RR/SLA/SRA/SRL、AF/BC/DE/HLのPUSH/POPです。算術/論理命令はS/Z/H/PV/N/Cを更新し、INC/DECはCを保存します。
 
 ## Documentation
 
@@ -101,6 +101,6 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ## 現在の制限とロードマップ
 
-MVP は Z80 全命令、CB/DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
+MVP は Z80 全命令、DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。Document化されたCB Bit/Rotate/Shift Subsetには対応しますが、非Document SLLには対応しません。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
 
 次の優先事項は、命令メタデータの共有範囲拡大、詳細なテスト定義形式、ウォッチポイント、非ブロッキング実時間入力、CB prefix の順です。

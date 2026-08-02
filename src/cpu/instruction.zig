@@ -2,8 +2,10 @@ pub const Definition = struct { mnemonic: []const u8, opcode: u8, size: u8, t_st
 
 /// Mnemonics currently accepted by the assembler. Operand forms remain family-specific.
 pub const assembler_mnemonics = [_][]const u8{
-    "NOP", "HALT", "RET", "JP", "CALL", "JR", "PUSH", "POP", "INC",
-    "DEC", "ADD",  "SUB", "CP", "AND",  "OR", "XOR",  "LD",
+    "NOP", "HALT", "RET", "JP",  "CALL", "JR",  "PUSH", "POP", "INC",
+    "DEC", "ADD",  "ADC", "SUB", "SBC",  "CP",  "AND",  "OR",  "XOR",
+    "LD",  "DJNZ", "BIT", "SET", "RES",  "RLC", "RRC",  "RL",  "RR",
+    "SLA", "SRA",  "SRL",
 };
 
 pub fn isAssemblerMnemonic(name: []const u8) bool {
@@ -71,6 +73,17 @@ pub fn ldRegisterTStates(destination: u8, source: u8) u16 {
 
 pub fn ldRegisterSize(_: u8, _: u8) u8 {
     return 1;
+}
+
+pub const CbOperation = enum(u8) { rlc = 0x00, rrc = 0x08, rl = 0x10, rr = 0x18, sla = 0x20, sra = 0x28, srl = 0x38, bit = 0x40, res = 0x80, set = 0xc0 };
+
+pub fn cbOpcode(operation: CbOperation, bit: u3, register: u8) u8 {
+    return @intFromEnum(operation) + (if (operation == .bit or operation == .res or operation == .set) @as(u8, bit) << 3 else 0) + (register & 7);
+}
+
+pub fn cbTStates(operation: CbOperation, register: u8) u16 {
+    if (register != 6) return 8;
+    return if (operation == .bit) 12 else 15;
 }
 
 pub const fixed = [_]Definition{

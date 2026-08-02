@@ -78,7 +78,7 @@ The display is 128×64 at 1bpp. Bit `y % 8` at `C000 + (y / 8) * 128 + x` repres
 
 The assembler supports labels, forward references, `;` comments, decimal (`42`), hexadecimal (`0x2A`), binary (`0b101010`), characters (`'A'`), the current address (`$`), and simple `+`/`-` expressions. Its directives are `org`, `db`, `dw`, and `equ`; strings can be emitted with syntax such as `db "HELLO", 0`. `org` changes the logical address and does not add padding to the output file.
 
-Supported instructions are NOP, HALT, JP, conditional JP (Z/NZ), JR, conditional JR (Z/NZ), CALL, RET, immediate and memory LD forms, general LD between 8-bit registers and `(HL)`, INC/DEC, ADD A, SUB, CP, AND, XOR, OR, and PUSH/POP for AF/BC/DE/HL. Arithmetic and logic update S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
+Supported instructions are NOP, HALT, JP/JR Z/NZ, DJNZ, CALL, RET, immediate and memory LD forms, general LD between 8-bit registers and `(HL)`, INC/DEC including `(HL)`, ADD A, ADC A, SUB, SBC A, CP, ADD HL, AND, XOR, OR, BIT/SET/RES, RLC/RRC/RL/RR/SLA/SRA/SRL, and PUSH/POP for AF/BC/DE/HL. Arithmetic and logic update S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
 
 ## Documentation
 
@@ -101,6 +101,6 @@ New instructions currently require corresponding additions to the CPU opcode fam
 
 ## Current limitations and roadmap
 
-The MVP does not support the complete Z80 instruction set, CB/DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
+The MVP does not support the complete Z80 instruction set, DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The documented CB bit/rotate/shift subset is supported; undocumented SLL is not. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
 
 Likely next areas include broader shared instruction metadata, a detailed program-test format, watchpoints, non-blocking real-time input, and CB-prefixed instructions.

@@ -61,16 +61,15 @@ pub fn decode(data: []const u8, address: u16) Decoded {
             const name: []const u8 = if (op == 0x18) "JR" else if (op == 0x20) "JR NZ," else "JR Z,";
             w(&d, "{s} 0x{X:0>4}", .{ name, target });
         },
-        0xc6, 0xd6, 0xfe => {
+        0xc6, 0xce, 0xd6, 0xde, 0xfe => {
             d.size = 2;
             d.bytes[1] = byte(data, i + 1);
-            const name: []const u8 = if (op == 0xc6) "ADD A," else if (op == 0xd6) "SUB" else "CP";
+            const name: []const u8 = if (op == 0xc6) "ADD A," else if (op == 0xce) "ADC A," else if (op == 0xd6) "SUB" else if (op == 0xde) "SBC A," else "CP";
             w(&d, "{s} 0x{X:0>2}", .{ name, d.bytes[1] });
         },
-        0x80...0x85, 0x87, 0x90...0x95, 0x97, 0xb8...0xbd, 0xbf => {
-            const regs = [_][]const u8{ "B", "C", "D", "E", "H", "L", "?", "A" };
-            const name: []const u8 = if (op < 0x90) "ADD A," else if (op < 0xb8) "SUB" else "CP";
-            w(&d, "{s} {s}", .{ name, regs[op & 7] });
+        0x80...0x9f, 0xb8...0xbf => {
+            const name: []const u8 = if (op < 0x88) "ADD A," else if (op < 0x90) "ADC A," else if (op < 0x98) "SUB" else if (op < 0xa0) "SBC A," else "CP";
+            w(&d, "{s} {s}", .{ name, instruction.register8Name(op & 7) });
         },
         0xa0...0xb7 => {
             const decoded = instruction.logicByOpcode(op).?;
@@ -82,7 +81,7 @@ pub fn decode(data: []const u8, address: u16) Decoded {
             const decoded = instruction.logicByOpcode(op).?;
             w(&d, "{s} 0x{X:0>2}", .{ decoded.family.mnemonic, d.bytes[1] });
         },
-        0x3c, 0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x23, 0x3d, 0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x2b => {
+        0x3c, 0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x23, 0x34, 0x3d, 0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x2b, 0x35 => {
             const is_inc = op == 0x3c or op == 0x04 or op == 0x0c or op == 0x14 or op == 0x1c or op == 0x24 or op == 0x2c or op == 0x23;
             const reg: []const u8 = switch (op) {
                 0x3c, 0x3d => "A",
@@ -92,9 +91,35 @@ pub fn decode(data: []const u8, address: u16) Decoded {
                 0x1c, 0x1d => "E",
                 0x24, 0x25 => "H",
                 0x2c, 0x2d => "L",
+                0x34, 0x35 => "(HL)",
                 else => "HL",
             };
             w(&d, "{s} {s}", .{ if (is_inc) "INC" else "DEC", reg });
+        },
+        0x09, 0x19, 0x29, 0x39 => {
+            const pair: []const u8 = if (op == 0x09) "BC" else if (op == 0x19) "DE" else if (op == 0x29) "HL" else "SP";
+            w(&d, "ADD HL,{s}", .{pair});
+        },
+        0x10 => {
+            d.size = 2;
+            d.bytes[1] = byte(data, i + 1);
+            const off: i8 = @bitCast(d.bytes[1]);
+            const target: u16 = address +% 2 +% @as(u16, @bitCast(@as(i16, off)));
+            w(&d, "DJNZ 0x{X:0>4}", .{target});
+        },
+        0xcb => {
+            d.size = 2;
+            d.bytes[1] = byte(data, i + 1);
+            const cb = d.bytes[1];
+            const register = instruction.register8Name(cb & 7);
+            const group = cb >> 6;
+            if (group == 0) {
+                const names = [_][]const u8{ "RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL" };
+                if ((cb >> 3) & 7 == 6) w(&d, "DB 0xCB,0x{X:0>2}", .{cb}) else w(&d, "{s} {s}", .{ names[(cb >> 3) & 7], register });
+            } else {
+                const name: []const u8 = if (group == 1) "BIT" else if (group == 2) "RES" else "SET";
+                w(&d, "{s} {d},{s}", .{ name, (cb >> 3) & 7, register });
+            }
         },
         0xf5, 0xc5, 0xd5, 0xe5, 0xf1, 0xc1, 0xd1, 0xe1 => {
             const push = op & 0x0f == 5;
