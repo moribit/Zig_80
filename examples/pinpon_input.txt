@@ -1,0 +1,5 @@
+# Deterministic instruction-index input replay for examples/pinpon.asm.
+0 press right
+2000 release right
+5000 press left
+7000 release left

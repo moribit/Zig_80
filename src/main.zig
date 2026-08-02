@@ -8,13 +8,14 @@ const video = @import("machine/video.zig");
 const debugger = @import("debugger/debugger.zig");
 const TuiState = @import("tui/state.zig").AppState;
 const tui_event_loop = @import("tui/event_loop.zig");
+const machine_input = @import("machine/input.zig");
 
 const usage =
     \\Zig_80 - integrated Z80 development environment
     \\
     \\Usage:
     \\  zig80 asm <source.asm> -o <output.bin>
-    \\  zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--screen]
+    \\  zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--input-script FILE] [--screen]
     \\  zig80 debug <program.bin>
     \\  zig80 disasm <program.bin>
     \\  zig80 test <program.bin>
@@ -112,13 +113,14 @@ fn asmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
 
 fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, out: *Io.Writer) !void {
     if (args.len < 1) {
-        try out.writeAll("usage: zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--screen]\n");
+        try out.writeAll("usage: zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--input-script FILE] [--screen]\n");
         return error.InvalidArguments;
     }
     const data = try readFile(io, allocator, args[0]);
     var max_instructions: usize = 1_000_000;
     var max_cycles: u64 = 10_000_000;
     var screen = false;
+    var input_events: []machine_input.Event = &.{};
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--screen")) screen = true else if (std.mem.eql(u8, args[i], "--max-instructions") and i + 1 < args.len) {
@@ -127,6 +129,10 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         } else if (std.mem.eql(u8, args[i], "--max-cycles") and i + 1 < args.len) {
             i += 1;
             max_cycles = try std.fmt.parseInt(u64, args[i], 10);
+        } else if (std.mem.eql(u8, args[i], "--input-script") and i + 1 < args.len) {
+            i += 1;
+            const input_source = try Io.Dir.cwd().readFileAlloc(io, args[i], allocator, .limited(1024 * 1024));
+            input_events = try machine_input.parseScript(allocator, input_source);
         } else return error.InvalidArguments;
     }
     var machine = Machine{};
@@ -134,7 +140,9 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
     var count: usize = 0;
     var cycles: u64 = 0;
     var reason: []const u8 = "instruction limit";
+    var replay = machine_input.Replay{ .events = input_events };
     while (count < max_instructions and cycles < max_cycles) {
+        machine.setInput(replay.advance(count).value);
         const step = machine.cpu.step(&machine.bus) catch |e| {
             try out.print("unknown opcode 0x{X:0>2} at PC=0x{X:0>4}\n", .{ machine.cpu.last_unknown_opcode, machine.cpu.last_unknown_pc });
             return e;

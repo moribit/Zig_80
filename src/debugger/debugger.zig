@@ -3,10 +3,12 @@ const Io = std.Io;
 const Machine = @import("../machine/machine.zig").Machine;
 const disassembler = @import("../disassembler/disassembler.zig");
 const video = @import("../machine/video.zig");
-const Breakpoints = @import("breakpoint.zig").Breakpoints;
+const breakpoint = @import("breakpoint.zig");
+const DebugSession = @import("session.zig").DebugSession;
 
 pub fn repl(machine: *Machine, program: []const u8, reader: *Io.Reader, out: *Io.Writer) !void {
-    var breaks = Breakpoints{};
+    var session = DebugSession{};
+    session.reset(machine);
     try out.writeAll("Zig_80 debugger (type help)\n");
     while (true) {
         try showCurrent(machine, program, out);
@@ -22,7 +24,7 @@ pub fn repl(machine: *Machine, program: []const u8, reader: *Io.Reader, out: *Io
         if (eq(cmd, "q") or eq(cmd, "quit")) return;
         if (eq(cmd, "s") or eq(cmd, "step")) {
             const before = machine.cpu.registers;
-            const step = machine.cpu.step(&machine.bus) catch |e| {
+            const step = session.step(machine) catch |e| {
                 try out.print("error: {s}, opcode=0x{X:0>2}, PC=0x{X:0>4}\n", .{ @errorName(e), machine.cpu.last_unknown_opcode, machine.cpu.last_unknown_pc });
                 continue;
             };
@@ -32,8 +34,8 @@ pub fn repl(machine: *Machine, program: []const u8, reader: *Io.Reader, out: *Io
         if (eq(cmd, "c") or eq(cmd, "continue")) {
             var n: usize = 0;
             while (!machine.cpu.halted and n < 1_000_000) : (n += 1) {
-                _ = machine.cpu.step(&machine.bus) catch break;
-                if (breaks.contains(machine.cpu.registers.pc)) break;
+                _ = session.step(machine) catch break;
+                if (session.last_watchpoint != null or session.breakpoints.shouldBreak(machine.cpu.registers.pc, machine.cpu.registers)) break;
             }
             try out.print("stopped after {d} instructions\n", .{n});
             continue;
@@ -64,13 +66,57 @@ pub fn repl(machine: *Machine, program: []const u8, reader: *Io.Reader, out: *Io
             continue;
         }
         if (eq(cmd, "break")) {
-            const address = try number(words.next() orelse "");
-            _ = breaks.add(address);
+            const first = words.next() orelse "";
+            const parsed_address: ?u16 = number(first) catch null;
+            const address = parsed_address orelse machine.cpu.registers.pc;
+            var condition: ?breakpoint.Condition = null;
+            var hit_target: u64 = 1;
+            var temporary = false;
+            var token: ?[]const u8 = if (parsed_address != null) words.next() else first;
+            if (token) |value| {
+                const lhs = if (eq(value, "if")) words.next() orelse "" else value;
+                if (eq(lhs, "hit")) {
+                    hit_target = try number64(words.next() orelse "");
+                } else if (eq(lhs, "temporary")) {
+                    temporary = true;
+                } else {
+                    condition = try breakpoint.parseCondition(lhs, words.next() orelse "", words.next() orelse "");
+                    token = words.next();
+                    if (token) |suffix| {
+                        if (eq(suffix, "hit")) {
+                            hit_target = try number64(words.next() orelse "");
+                        } else if (eq(suffix, "temporary")) {
+                            temporary = true;
+                        }
+                    }
+                }
+            }
+            if (!session.breakpoints.addOptions(address, .{ .condition = condition, .hit_target = hit_target, .temporary = temporary })) try out.writeAll("breakpoint not added\n");
             continue;
         }
         if (eq(cmd, "delete")) {
             const address = try number(words.next() orelse "");
-            _ = breaks.remove(address);
+            _ = session.breakpoints.remove(address);
+            continue;
+        }
+        if (eq(cmd, "enable") or eq(cmd, "disable")) {
+            const address = try number(words.next() orelse "");
+            _ = session.breakpoints.setEnabled(address, eq(cmd, "enable"));
+            continue;
+        }
+        if (eq(cmd, "watch")) {
+            const kind_text = words.next() orelse "";
+            const kind: breakpoint.WatchKind = if (eq(kind_text, "read")) .memory_read else if (eq(kind_text, "write")) .memory_write else if (eq(kind_text, "io-read")) .io_read else if (eq(kind_text, "io-write")) .io_write else return error.InvalidWatchKind;
+            const range = words.next() orelse "";
+            const separator = std.mem.indexOf(u8, range, "..");
+            const start = try number(if (separator) |index| range[0..index] else range);
+            const end = try number(if (separator) |index| range[index + 2 ..] else range);
+            var condition: ?breakpoint.Condition = null;
+            if (words.next()) |if_token| {
+                if (!eq(if_token, "if") or !eq(words.next() orelse "", "value")) return error.InvalidWatchCondition;
+                condition = try breakpoint.parseValueCondition(words.next() orelse "", words.next() orelse "");
+            }
+            if (!session.watchpoints.add(.{ .kind = kind, .start = start, .end = end, .condition = condition })) try out.writeAll("watchpoint not added\n");
             continue;
         }
         if (eq(cmd, "input")) {
@@ -83,10 +129,11 @@ pub fn repl(machine: *Machine, program: []const u8, reader: *Io.Reader, out: *Io
         }
         if (eq(cmd, "reset")) {
             machine.reset();
+            session.reset(machine);
             continue;
         }
         if (eq(cmd, "help")) {
-            try out.writeAll("step/s, continue/c, registers/r, memory/m <address> <length>, disasm <address> <count>, break <address>, delete <address>, input <value>, screen, reset, quit/q\n");
+            try out.writeAll("step/s, continue/c, registers/r, memory/m <address> <length>, disasm <address> <count>, break [address] [if] <register/flag> <op> <value> [hit N], delete/enable/disable <address>, watch <read/write> <address[..end]> [if value <op> N], input <value>, screen, reset, quit/q\n");
             continue;
         }
         try out.print("unknown command: {s}\n", .{cmd});
@@ -98,6 +145,9 @@ fn eq(a: []const u8, b: []const u8) bool {
 }
 fn number(s: []const u8) !u16 {
     return if (std.mem.startsWith(u8, s, "0x")) std.fmt.parseInt(u16, s[2..], 16) else std.fmt.parseInt(u16, s, 10);
+}
+fn number64(s: []const u8) !u64 {
+    return if (std.mem.startsWith(u8, s, "0x")) std.fmt.parseInt(u64, s[2..], 16) else std.fmt.parseInt(u64, s, 10);
 }
 fn showCurrent(machine: *Machine, program: []const u8, out: *Io.Writer) !void {
     const pc = machine.cpu.registers.pc;

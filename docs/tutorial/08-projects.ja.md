@@ -131,7 +131,7 @@ BallがHALTせず固定Paddle間を往復します。EscapeでPauseし、Directi
 - Paddle Addressを内側へ1 Column移動する
 - Memory Write FilterでVRAM Writeだけを観察する
 
-現在は実時間Game Key入力がないためPaddleは固定です。CLI Debuggerでは`input 0x11`のように`C400`を設定できますが、継続GameのRealtime操作ではありません。
+Paddleは固定ですが、`Ctrl+G`のGame Input ModeでLeft/Rightを押すとBallの方向を変更できます。CLIでは`--input-script`で同じInput Registerを決定的にReplayできます。
 
 ## Exercise 4: Game of Lifeへつなぐ
 

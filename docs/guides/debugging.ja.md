@@ -12,5 +12,4 @@
 6. VRAMならPixel InspectorとWriterを確認
 7. Tool Issueは最小ROMへ縮小
 
-BreakpointはAddressのみでWatchpoint/条件は未実装です。Bus Traceは論理Accessで、実Timingではありません。
-
+Breakpointは条件、Hit Count、Temporary、Enable/Disableに対応し、WatchpointはRead/Write RangeとValue条件に対応します。Bus Traceは論理Accessで、実Timingではありません。

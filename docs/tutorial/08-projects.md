@@ -89,7 +89,7 @@ Run with `Ctrl+E`, switch to Display, and pause with Escape. The ball must bounc
 
 ### Hints and extensions
 
-Challenges: change ball pattern `18` to `3C`, alter delay, move paddles inward, and inspect only VRAM writes. Paddles remain fixed because real-time game input is not implemented.
+Challenges: enter Game Input mode and reverse the ball with Left/Right, change pattern `18` to `3C`, alter delay, move the fixed paddles inward, and inspect only VRAM writes.
 
 ## Exercise 4: Game of Life
 

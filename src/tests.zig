@@ -22,6 +22,9 @@ const tui_app = @import("tui/app.zig");
 const bus_waveform = @import("tui/bus_waveform.zig");
 const Rect = @import("tui/layout.zig").Rect;
 const editor_syntax = @import("tui/editor/syntax.zig");
+const breakpoint = @import("debugger/breakpoint.zig");
+const DebugSession = @import("debugger/session.zig").DebugSession;
+const machine_input = @import("machine/input.zig");
 
 test {
     _ = @import("documentation_test.zig");
@@ -452,6 +455,92 @@ test "CB opcode matrix covers every documented register and bit operand" {
             }
         }
     }
+}
+
+test "conditional hit count enabled and temporary breakpoints share one API" {
+    var breaks = breakpoint.Breakpoints{};
+    const condition = try breakpoint.parseCondition("A", "==", "0x2A");
+    try std.testing.expect(breaks.addOptions(0x1234, .{ .condition = condition, .hit_target = 3 }));
+    var registers = @import("cpu/registers.zig").Registers{};
+    registers.a = 0x2a;
+    try std.testing.expect(!breaks.shouldBreak(0x1234, registers));
+    try std.testing.expect(!breaks.shouldBreak(0x1234, registers));
+    try std.testing.expect(breaks.shouldBreak(0x1234, registers));
+    try std.testing.expect(breaks.setEnabled(0x1234, false));
+    try std.testing.expect(!breaks.shouldBreak(0x1234, registers));
+    try std.testing.expect(breaks.remove(0x1234));
+
+    const flag_condition = try breakpoint.parseCondition("Z", "==", "1");
+    registers.f = flags.Z;
+    try std.testing.expect(breaks.addOptions(0x2000, .{ .condition = flag_condition, .temporary = true }));
+    try std.testing.expect(breaks.shouldBreak(0x2000, registers));
+    try std.testing.expect(!breaks.contains(0x2000));
+}
+
+test "debug session stops on ranged value watchpoint without replacing UI trace" {
+    var machine = Machine{};
+    const program = [_]u8{ 0x21, 0x00, 0x90, 0x36, 0x2a, 0x76 };
+    try machine.load(&program);
+    var visible_trace = trace.TraceBuffer{};
+    machine.bus.trace_sink = visible_trace.sink();
+    var session = DebugSession{};
+    const value_condition = try breakpoint.parseValueCondition("!=", "0");
+    try std.testing.expect(session.watchpoints.add(.{ .kind = .memory_write, .start = 0x9000, .end = 0x90ff, .condition = value_condition }));
+    session.reset(&machine);
+    _ = try session.step(&machine);
+    try std.testing.expect(session.last_watchpoint == null);
+    _ = try session.step(&machine);
+    try std.testing.expectEqual(@as(?usize, 0), session.last_watchpoint);
+    try std.testing.expectEqual(@as(u8, 0x2a), machine.bus.memory[0x9000]);
+    try std.testing.expect(visible_trace.len > 0);
+    try std.testing.expect(session.watch_trace.len > 0);
+}
+
+test "input state recording script and replay preserve simultaneous press release" {
+    var state = machine_input.State{};
+    try std.testing.expect(state.apply(.press, .right));
+    try std.testing.expect(state.apply(.press, .a));
+    try std.testing.expect(state.pressed(.right));
+    try std.testing.expect(state.pressed(.a));
+    try std.testing.expect(state.apply(.release, .right));
+    try std.testing.expect(!state.pressed(.right));
+    try std.testing.expect(state.pressed(.a));
+
+    const script =
+        \\120 press a
+        \\0 press right
+        \\100 release right
+        \\125 release a
+    ;
+    const events = try machine_input.parseScript(std.testing.allocator, script);
+    defer std.testing.allocator.free(events);
+    try std.testing.expectEqual(@as(usize, 4), events.len);
+    try std.testing.expectEqual(@as(u64, 0), events[0].at_instruction);
+    var replay = machine_input.Replay{ .events = events };
+    try std.testing.expect(replay.advance(0).pressed(.right));
+    try std.testing.expect(!replay.advance(100).pressed(.right));
+    try std.testing.expect(replay.advance(120).pressed(.a));
+    try std.testing.expect(!replay.advance(125).pressed(.a));
+}
+
+test "TUI game input mode isolates editor and records explicit releases" {
+    var state = try AppState.init(std.testing.allocator, null, "halt\n");
+    defer state.deinit();
+    const original_source = try std.testing.allocator.dupe(u8, state.source.text());
+    defer std.testing.allocator.free(original_source);
+    try state.apply(.toggle_game_input, std.testing.io);
+    try std.testing.expect(state.game_input_mode);
+    try std.testing.expect(state.applyGameKey(.{ .code = .right }));
+    try std.testing.expect(state.applyGameKey(.{ .code = .{ .character = 'j' } }));
+    try std.testing.expectEqual(machine_input.Right | machine_input.A, state.machine.bus.memory[0xc400]);
+    try std.testing.expectEqualStrings(original_source, state.source.text());
+    try std.testing.expect(state.applyGameKey(.{ .code = .{ .character = 'J' } }));
+    try std.testing.expectEqual(machine_input.Right, state.machine.bus.memory[0xc400]);
+    state.tickUi(1000);
+    try std.testing.expectEqual(@as(u8, 0), state.machine.bus.memory[0xc400]);
+    try std.testing.expect(state.input_recording.len >= 4);
+    try std.testing.expect(state.applyGameKey(.{ .code = .escape }));
+    try std.testing.expect(!state.game_input_mode);
 }
 test "absolute load advances PC past the 16-bit address" {
     var bus = Bus{};

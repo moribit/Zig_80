@@ -10,8 +10,10 @@ const TraceBuffer = @import("../trace/trace.zig").TraceBuffer;
 const Command = @import("command.zig").Command;
 const Screen = @import("command.zig").Screen;
 const editor_syntax = @import("editor/syntax.zig");
+const machine_input = @import("../machine/input.zig");
+const key = @import("terminal/key.zig");
 
-pub const ExecutionState = enum { empty, assembled, paused, running, halted, breakpoint, limit_reached, faulted };
+pub const ExecutionState = enum { empty, assembled, paused, running, halted, breakpoint, watchpoint, limit_reached, faulted };
 pub const BusView = enum { events, waveform };
 
 pub const DisplayScale = enum(u8) { x1 = 1, x2 = 2, x4 = 4 };
@@ -157,6 +159,10 @@ pub const AppState = struct {
     quit_requested: bool = false,
     confirm_quit: bool = false,
     ignore_breakpoint_once: bool = false,
+    game_input_mode: bool = false,
+    game_input: machine_input.State = .{},
+    input_recording: machine_input.Recording(4096) = .{},
+    input_release_at_ms: [7]i64 = [_]i64{0} ** 7,
 
     pub fn init(allocator: std.mem.Allocator, path: ?[]const u8, text: []const u8) !AppState {
         var self = AppState{ .allocator = allocator, .source = try SourceBuffer.init(allocator, text) };
@@ -176,6 +182,7 @@ pub const AppState = struct {
 
     pub fn attachTrace(self: *AppState) void {
         self.machine.bus.trace_sink = self.trace.sink();
+        self.machine.bus.debug_trace_sink = self.debug_session.watch_trace.sink();
     }
 
     pub fn statusText(self: *const AppState) []const u8 {
@@ -235,6 +242,10 @@ pub const AppState = struct {
         self.waveform_follow_cursor = true;
         @memset(&self.instruction_snapshots, null);
         self.resetDisplayTracking();
+        self.game_input = .{};
+        self.input_recording.clear();
+        @memset(&self.input_release_at_ms, 0);
+        self.machine.setInput(0);
     }
 
     pub fn runFromReset(self: *AppState) void {
@@ -296,6 +307,12 @@ pub const AppState = struct {
             self.selected_trace_event = self.trace.len - 1;
             self.syncTraceSelection();
         }
+        if (self.debug_session.last_watchpoint) |watchpoint| {
+            self.execution_state = .watchpoint;
+            self.setStatus("Watchpoint #{d} after PC=0x{X:0>4}", .{ watchpoint, result.pc_before });
+            self.showToast(.breakpoint, "Watchpoint #{d}", .{watchpoint});
+            return;
+        }
         if (result.halted) {
             self.execution_state = .halted;
             self.setStatus("HALT at PC=0x{X:0>4}", .{result.pc_after});
@@ -313,7 +330,7 @@ pub const AppState = struct {
                 return;
             }
             const pc = self.machine.cpu.registers.pc;
-            if (!self.ignore_breakpoint_once and self.debug_session.breakpoints.contains(pc)) {
+            if (!self.ignore_breakpoint_once and self.debug_session.breakpoints.shouldBreak(pc, self.machine.cpu.registers)) {
                 self.execution_state = .breakpoint;
                 self.setStatus("Breakpoint at 0x{X:0>4}", .{pc});
                 self.showToast(.breakpoint, "Breakpoint at 0x{X:0>4}", .{pc});
@@ -453,6 +470,7 @@ pub const AppState = struct {
             .step_instruction => self.step(),
             .reset => self.reset(),
             .toggle_breakpoint => self.toggleBreakpoint(),
+            .toggle_game_input => self.toggleGameInput(),
             .switch_screen => |screen| self.active_screen = screen,
             .show_help => self.active_screen = .help,
             .open_palette => self.palette = .{ .active = true },
@@ -488,7 +506,9 @@ pub const AppState = struct {
                 } else self.quit_requested = true;
             },
             .cancel => {
-                if (self.active_screen == .memory and self.memory_input.active) {
+                if (self.game_input_mode) {
+                    self.leaveGameInput();
+                } else if (self.active_screen == .memory and self.memory_input.active) {
                     self.memory_input = .{};
                     self.setStatus("Memory address input cancelled", .{});
                 } else self.pause();
@@ -518,6 +538,9 @@ pub const AppState = struct {
             self.display_changed_pixels = 0;
             @memset(&self.display_dirty, false);
         }
+        for (0..7) |index| if (self.input_release_at_ms[index] != 0 and now_ms >= self.input_release_at_ms[index]) {
+            self.releaseGameButton(@enumFromInt(index));
+        };
     }
 
     pub fn showToast(self: *AppState, kind: ToastKind, comptime fmt: []const u8, args: anytype) void {
@@ -545,7 +568,87 @@ pub const AppState = struct {
         return if (snapshot.instruction_index == instruction_index) snapshot else null;
     }
 
-    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "display scale 1x", "display scale 2x", "display scale 4x", "display grid", "bus filter all", "bus filter memory write", "waveform zoom 1x", "waveform zoom 2x", "waveform zoom 4x", "waveform zoom fit", "execution overlay", "quit" };
+    pub fn applyGameKey(self: *AppState, event: key.KeyEvent) bool {
+        if (!self.game_input_mode) return false;
+        const code_tag = std.meta.activeTag(event.code);
+        const ctrl_g = switch (event.code) {
+            .character => |character| event.ctrl and character == 'g',
+            else => false,
+        };
+        if (code_tag == .escape or ctrl_g) {
+            self.leaveGameInput();
+            return true;
+        }
+        const mapped: ?struct { button: machine_input.Button, release: bool = false, timed: bool = false } = switch (event.code) {
+            .up => .{ .button = .up, .timed = true },
+            .down => .{ .button = .down, .timed = true },
+            .left => .{ .button = .left, .timed = true },
+            .right => .{ .button = .right, .timed = true },
+            .character => |character| switch (character) {
+                'w' => .{ .button = .up },
+                'W' => .{ .button = .up, .release = true },
+                's' => .{ .button = .down },
+                'S' => .{ .button = .down, .release = true },
+                'a' => .{ .button = .left },
+                'A' => .{ .button = .left, .release = true },
+                'd' => .{ .button = .right },
+                'D' => .{ .button = .right, .release = true },
+                'j' => .{ .button = .a },
+                'J' => .{ .button = .a, .release = true },
+                'k' => .{ .button = .b },
+                'K' => .{ .button = .b, .release = true },
+                ' ' => .{ .button = .start },
+                else => null,
+            },
+            else => null,
+        };
+        const mapping = mapped orelse return true;
+        if (mapping.release) self.releaseGameButton(mapping.button) else {
+            if (self.game_input.apply(.press, mapping.button)) self.recordInput(.press, mapping.button);
+            self.machine.setInput(self.game_input.value);
+            if (mapping.timed) self.input_release_at_ms[@intFromEnum(mapping.button)] = self.ui_now_ms + 180;
+        }
+        return true;
+    }
+
+    fn toggleGameInput(self: *AppState) void {
+        if (self.game_input_mode) self.leaveGameInput() else {
+            self.game_input_mode = true;
+            self.showToast(.info, "Game Input mode", .{});
+            self.setStatus("GAME INPUT: arrows/WASD, J=A, K=B, Space=Start, uppercase=release, Esc=leave", .{});
+        }
+    }
+
+    fn leaveGameInput(self: *AppState) void {
+        for (0..7) |index| if (self.game_input.pressed(@enumFromInt(index))) self.recordInput(.release, @enumFromInt(index));
+        self.game_input.releaseAll();
+        self.machine.setInput(0);
+        @memset(&self.input_release_at_ms, 0);
+        self.game_input_mode = false;
+        self.setStatus("Left Game Input mode", .{});
+    }
+
+    fn releaseGameButton(self: *AppState, button: machine_input.Button) void {
+        if (self.game_input.apply(.release, button)) self.recordInput(.release, button);
+        self.input_release_at_ms[@intFromEnum(button)] = 0;
+        self.machine.setInput(self.game_input.value);
+    }
+
+    fn recordInput(self: *AppState, action: machine_input.Action, button: machine_input.Button) void {
+        _ = self.input_recording.record(.{ .at_instruction = self.executed_instructions, .action = action, .button = button });
+    }
+
+    fn saveInputRecording(self: *AppState, io: Io) !void {
+        const file = try Io.Dir.cwd().createFile(io, "zig80-input.txt", .{});
+        defer file.close(io);
+        var buffer: [1024]u8 = undefined;
+        var file_writer = file.writer(io, &buffer);
+        try machine_input.writeScript(self.input_recording.events[0..self.input_recording.len], &file_writer.interface);
+        try file_writer.interface.flush();
+        self.showToast(.success, "Saved zig80-input.txt", .{});
+    }
+
+    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "display scale 1x", "display scale 2x", "display scale 4x", "display grid", "bus filter all", "bus filter memory write", "waveform zoom 1x", "waveform zoom 2x", "waveform zoom 4x", "waveform zoom fit", "execution overlay", "quit", "save input recording" };
 
     fn applyPalette(self: *AppState, action: Command, io: Io) !void {
         switch (action) {
@@ -612,6 +715,7 @@ pub const AppState = struct {
                             self.setStatus("Unsaved changes: choose quit again to discard, or Ctrl+S to save", .{});
                         } else self.quit_requested = true;
                     },
+                    24 => try self.saveInputRecording(io),
                     else => {},
                 }
             },

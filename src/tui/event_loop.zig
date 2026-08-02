@@ -47,6 +47,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, state: *AppState, color: bo
         decoder.feed(input_buffer[0..count]);
         const now_ms: i64 = @intCast(@divTrunc(std.Io.Clock.awake.now(io).nanoseconds, std.time.ns_per_ms));
         while (decoder.next(now_ms)) |event| {
+            if (state.applyGameKey(event)) continue;
             const action = command.map(event);
             state.apply(action, io) catch |err| state.setStatus("Command failed: {s}", .{@errorName(err)});
         }

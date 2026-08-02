@@ -35,7 +35,7 @@ zig build run -- tui examples/pixel.asm
 zig build run -- tui examples/pinpon.asm
 ```
 
-`Ctrl+E`で実行し、`Ctrl+5`またはCommand Paletteの`display`で、固定Paddle間をBallが往復する様子を確認できます。Escapeで一時停止します。このdemoは意図的に無限Loopしますが、TUIの実行上限は安全停止として有効です。
+`Ctrl+E`で実行し、`Ctrl+5`またはCommand Paletteの`display`を開きます。`Ctrl+G`でGame Input Modeへ入り、Left/RightでBallの向きを変更し、EscapeでModeを抜けます。このdemoは意図的に無限Loopしますが、TUIの実行上限は安全停止として有効です。
 
 Sourceを主役にしたTUIは通常画面の約70%をEditorに割り当て、補助色のAddress／Bytes、現在PC、Group化したCPU／Instructionカード、論理Busアクセスを関連付けます。静かなHeaderはFile状態だけを示し、Pane固有Context HelpはBadge風Status Barへ表示します。Fnキーを使わずCtrl+PのCommand Paletteを中心に操作します。Bus画面はInstruction Cardと等幅のLogical Waveformを横に表示します。この波形はcycle-accurateではありません。詳細は[TUIガイド](docs/tui.ja.md)を参照してください。
 
@@ -101,6 +101,6 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ## 現在の制限とロードマップ
 
-MVP は Z80 全命令、DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、実時間入力、ウォッチポイント、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。Document化されたCB Bit/Rotate/Shift Subsetには対応しますが、非Document SLLには対応しません。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
+MVP は Z80 全命令、DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。Document化されたCB Bit/Rotate/Shift Subsetには対応しますが、非Document SLLには対応しません。条件Breakpointと論理Read/Write Watchpoint、命令Index Input Replay、Terminal Game Input Modeを利用できますが、一般Terminalはnative Key-up Eventを通知できません。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
 
-次の優先事項は、命令メタデータの共有範囲拡大、詳細なテスト定義形式、ウォッチポイント、非ブロッキング実時間入力、CB prefix の順です。
+次の優先事項は、File-aware Assembly、保存可能なSymbol/Source Map、Project Support、Port I/Oです。

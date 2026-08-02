@@ -12,5 +12,4 @@ Use the CLI for repeatable, line-oriented inspection and the TUI for correlated 
 6. For VRAM, verify Pixel Inspector and writer instruction.
 7. Reduce the program to a minimal ROM before reporting a tool issue.
 
-Breakpoints are address-only and no watchpoints or conditions exist yet. Bus traces explain logical accesses, not physical timing.
-
+Breakpoints support conditions, hit counts, temporary stops, and enable/disable. Watchpoints support logical read/write ranges and value conditions. Bus traces explain logical accesses, not physical timing.

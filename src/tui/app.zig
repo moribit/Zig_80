@@ -734,7 +734,10 @@ pub fn renderStatus(state: *const AppState, frame: *Frame, rect: Rect) void {
     const dirty_x = rect.x + state_name.len + 4;
     frame.print(dirty_x, rect.y, .{ .fg = if (state.source.dirty) .yellow else .green, .reverse = true, .bold = true }, "[{s}]", .{dirty_name});
     var metrics_buffer: [160]u8 = undefined;
-    const metrics = std.fmt.bufPrint(&metrics_buffer, "PC {X:0>4}  Instr {d}  T-State {d}  Trace {d}/4096", .{ state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len }) catch "";
+    const metrics = if (state.game_input_mode or state.game_input.value != 0)
+        std.fmt.bufPrint(&metrics_buffer, "PC {X:0>4}  Instr {d}  T-State {d}  Trace {d}/4096  Input {X:0>2} GAME", .{ state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len, state.game_input.value }) catch ""
+    else
+        std.fmt.bufPrint(&metrics_buffer, "PC {X:0>4}  Instr {d}  T-State {d}  Trace {d}/4096", .{ state.machine.cpu.registers.pc, state.executed_instructions, state.machine.cpu.total_t_states, state.trace.len }) catch "";
     const metrics_x = dirty_x + dirty_name.len + 4;
     frame.writeText(metrics_x, rect.y, metrics, .{ .reverse = true });
     const help = statusHelp(state);
@@ -745,7 +748,7 @@ fn statusBadgeStyle(value: state_mod.ExecutionState) Style {
     return .{ .fg = switch (value) {
         .running => .green,
         .halted => .cyan,
-        .breakpoint, .limit_reached => .yellow,
+        .breakpoint, .watchpoint, .limit_reached => .yellow,
         .faulted => .red,
         .paused => .blue,
         .assembled => .cyan,
@@ -774,6 +777,7 @@ fn statusName(value: state_mod.ExecutionState) []const u8 {
         .paused => "PAUSED",
         .halted => "HALTED",
         .breakpoint => "BREAKPOINT",
+        .watchpoint => "WATCHPOINT",
         .faulted => "FAULT",
         .limit_reached => "LIMIT",
     };
@@ -787,6 +791,7 @@ fn titleState(value: state_mod.ExecutionState) []const u8 {
         .paused => "Paused",
         .halted => "Halted",
         .breakpoint => "Breakpoint",
+        .watchpoint => "Watchpoint",
         .faulted => "Fault",
         .limit_reached => "Limit",
     };

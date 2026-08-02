@@ -3,6 +3,7 @@ const trace = @import("../trace/trace.zig");
 pub const Bus = struct {
     memory: [65536]u8 = [_]u8{0} ** 65536,
     trace_sink: ?trace.TraceSink = null,
+    debug_trace_sink: ?trace.TraceSink = null,
     trace_sequence: u64 = 0,
     instruction_index: u64 = 0,
     instruction_t_state: u64 = 0,
@@ -59,8 +60,7 @@ pub const Bus = struct {
     pub fn output(_: *Bus, _: u16, _: u8) void {}
 
     fn record(self: *Bus, kind: trace.BusEventKind, address: u16, data: u8, signals: trace.BusSignals) void {
-        const sink = self.trace_sink orelse return;
-        sink.record(.{
+        const event: trace.BusEvent = .{
             .sequence = self.trace_sequence,
             .instruction_index = self.instruction_index,
             .event_index_in_instruction = self.event_index_in_instruction,
@@ -70,7 +70,10 @@ pub const Bus = struct {
             .data = data,
             .signals = signals,
             .pc = self.instruction_pc,
-        });
+        };
+        if (self.trace_sink) |sink| sink.record(event);
+        if (self.debug_trace_sink) |sink| sink.record(event);
+        if (self.trace_sink == null and self.debug_trace_sink == null) return;
         self.trace_sequence +%= 1;
         self.event_index_in_instruction +|= 1;
     }

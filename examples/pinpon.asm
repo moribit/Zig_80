@@ -1,18 +1,18 @@
-; Pinpon: an autonomous bouncing-ball demo for the Zig_80 TUI.
+; Pinpon: an interactive bouncing-ball demo for the Zig_80 TUI.
 ;
 ; Open with:
 ;   zig build run -- tui examples/pinpon.asm
 ;
 ; In the TUI, press Ctrl+E to run, then switch to Display with Ctrl+5
-; or the `display` command in Ctrl+P. Press Esc to pause.
-;
-; The current TUI has no real-time game-key input, so both paddles are
-; fixed. The ball deliberately runs forever instead of executing HALT.
+; or the `display` command in Ctrl+P. Ctrl+G enters Game Input mode;
+; Left/Right changes direction. Esc leaves Game Input mode. The ball
+; deliberately runs forever instead of executing HALT.
 
 org 0x0000
 
 VRAM equ 0xC000
 DIRECTION equ 0x8000
+INPUT equ 0xC400
 
 start:
     ; Draw full-height paddles at the left and right edges of the first
@@ -29,6 +29,18 @@ start:
     ld (DIRECTION), a
 
 game_loop:
+    ld a, (INPUT)
+    and 4
+    jr z, check_right
+    ld a, 0
+    ld (DIRECTION), a
+check_right:
+    ld a, (INPUT)
+    and 8
+    jr z, draw_ball
+    ld a, 1
+    ld (DIRECTION), a
+draw_ball:
     ld (hl), 0x18
 
     ; A visible delay keeps cooperative TUI execution responsive and makes

@@ -35,7 +35,7 @@ For a program that does not immediately HALT, open the autonomous Pinpon demo:
 zig build run -- tui examples/pinpon.asm
 ```
 
-Press `Ctrl+E` to run, then use `Ctrl+5` or the Command Palette's `display` action to watch the ball bounce between fixed paddles. Press Escape to pause. The demo intentionally loops forever; TUI execution limits still provide a safety stop.
+Press `Ctrl+E` to run, then use `Ctrl+5` or the Command Palette's `display` action. `Ctrl+G` enters Game Input mode; Left/Right changes the ball direction and Escape leaves the mode. The demo intentionally loops forever; TUI execution limits still provide a safety stop.
 
 The source-first TUI gives the editor roughly 70% of the normal layout, then relates subdued source addresses and bytes, current PC, grouped CPU and Instruction cards, and logical Bus accesses. Its quiet header contains only file state; pane focus changes context help on the badge-style status bar. Ctrl+P opens the command-centered palette, with no Function-key bindings. The Bus view places an instruction card beside an equal-width logical waveform. The waveform is not cycle-accurate. See [TUI Guide](docs/tui.md) for details.
 
@@ -101,6 +101,6 @@ New instructions currently require corresponding additions to the CPU opcode fam
 
 ## Current limitations and roadmap
 
-The MVP does not support the complete Z80 instruction set, DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, real-time input, watchpoints, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The documented CB bit/rotate/shift subset is supported; undocumented SLL is not. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
+The MVP does not support the complete Z80 instruction set, DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The documented CB bit/rotate/shift subset is supported; undocumented SLL is not. Conditional breakpoints and logical read/write watchpoints are available, as are instruction-indexed input replay and terminal Game Input mode; ordinary terminals still cannot report native key-up events. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
 
-Likely next areas include broader shared instruction metadata, a detailed program-test format, watchpoints, non-blocking real-time input, and CB-prefixed instructions.
+Likely next areas include file-aware assembly, serializable symbols/source maps, project support, and port I/O.

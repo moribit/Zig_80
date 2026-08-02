@@ -19,7 +19,9 @@ pub const Machine = struct {
         self.cpu.reset();
     }
     pub fn setInput(self: *Machine, value: u8) void {
-        self.bus.write8(memory.input_address, value);
+        // Peripheral state changes are not Z80 bus transactions and therefore
+        // must not appear in the CPU's logical trace.
+        self.bus.memory[memory.input_address] = value;
     }
     pub fn tickFrame(self: *Machine) void {
         self.frame_counter +%= 1;
@@ -27,8 +29,8 @@ pub const Machine = struct {
         self.syncDevices();
     }
     fn syncDevices(self: *Machine) void {
-        self.bus.write8(memory.frame_low, @truncate(self.frame_counter));
-        self.bus.write8(memory.frame_high, @truncate(self.frame_counter >> 8));
-        self.bus.write8(memory.random_address, @truncate(self.random_state));
+        self.bus.memory[memory.frame_low] = @truncate(self.frame_counter);
+        self.bus.memory[memory.frame_high] = @truncate(self.frame_counter >> 8);
+        self.bus.memory[memory.random_address] = @truncate(self.random_state);
     }
 };

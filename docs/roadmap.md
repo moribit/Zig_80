@@ -293,4 +293,6 @@ Define the boundary that could let one Machine specification and ROM target both
 
 Phase 1 is complete for the forms listed above: shared opcode-family helpers; AND/OR/XOR; general register and `(HL)` LD; ADC/SBC; INC/DEC `(HL)`; ADD HL pairs; DJNZ; and documented CB BIT/SET/RES/rotate/shift groups. CPU, assembler, disassembler, Explain, logical Trace, documentation, and exhaustive operand-matrix tests are synchronized. Undocumented SLL remains deliberately unsupported.
 
-The Phase 7 documentation structure and integrity-test foundation were also established early because the implemented/planned boundary must remain visible. Phases 2–6 and 8 remain pending until their own completion criteria are met.
+The Phase 7 documentation structure and integrity-test foundation were also established early because the implemented/planned boundary must remain visible. Remaining work in Phases 2–6 and 8 stays pending until its completion criteria are met.
+
+Phase 2's Core debugger and input increment is implemented: shared conditional/hit-count/temporary/enabled breakpoints, ranged/value watchpoints, a second non-invasive debugger Bus sink, input state/recording/replay, headless `--input-script`, and isolated TUI Game Input mode. Label breakpoint resolution waits for the Phase 3 Symbol service; native terminal key-up remains unavailable and the documented explicit/expiry release adapter is used instead.

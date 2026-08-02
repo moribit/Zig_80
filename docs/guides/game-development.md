@@ -21,5 +21,4 @@ loop:
 
 Use general RAM for game state, HL for a current address, counters for finite loops, and complete VRAM byte patterns because bitwise read-modify-write support remains limited. Assemble, disassemble, Step, verify memory/display, and only then replace HALT with JP.
 
-Pinpon demonstrates a continuous autonomous loop; Game of Life demonstrates alternating display patterns. Real-time input and project manifests are not implemented yet.
-
+Pinpon demonstrates a continuous loop and Game Input direction changes; Game of Life demonstrates alternating display patterns. Project manifests are not implemented yet.
