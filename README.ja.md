@@ -39,6 +39,8 @@ Sourceを主役にしたTUIは通常画面の約70%をEditorに割り当て、�
 
 Displayは128×64、1bpp出力をゲーム画面として扱い、1x／2x／4x倍率（既定2x）、任意Grid、Pixel検査、更新番号、変更Pixel数、Display更新FPSを表示します。Stepでは観測したSource実行結果、Register前後値、論理Bus Access、変更VRAM Pixelを関連付け、Bus選択時も命令PCと保存済みCPU状態へ同期します。Display倍率／GridとBus Filterは`Ctrl+P`から変更できます。
 
+Logic AnalyzerはHigh／Low Trace、明示的な立上り・立下り、垂直Time Cursor、1x／2x／4x／Fit Zoom、独立Panを備えます。時間軸は論理Event順序であり、cycle-accurateではないことを常時明記します。
+
 Sourceは汎用テキストエディターではなくZ80専用です。キャッシュされたTokenからMnemonic、Register、Directive、Operand、Source Labelを文脈補完し、自動Indent、選択、Undo/Redo、Incremental Search、Label移動／Rename、Inline Diagnostic／Bytes、Stepで実際に起きた変化の短時間Overlayを提供します。
 
 TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100,000,000へ達すると停止します。Resetは両カウンターを消去し、上限停止後も明示的なStepは実行できます。

@@ -52,25 +52,31 @@ pub const Frame = struct {
     }
 
     pub fn fillRect(self: *Frame, x: usize, y: usize, width: usize, height: usize, codepoint: u21, style: Style) void {
-        for (y..@min(y + height, self.height)) |row|
-            for (x..@min(x + width, self.width)) |column| self.set(column, row, codepoint, style);
+        if (x >= self.width or y >= self.height) return;
+        const clipped_width = @min(width, self.width - x);
+        const clipped_height = @min(height, self.height - y);
+        for (y..y + clipped_height) |row|
+            for (x..x + clipped_width) |column| self.set(column, row, codepoint, style);
     }
 
     pub fn box(self: *Frame, x: usize, y: usize, width: usize, height: usize, title: []const u8, style: Style) void {
-        if (width < 2 or height < 2) return;
-        for (x + 1..@min(x + width - 1, self.width)) |column| {
+        if (x >= self.width or y >= self.height) return;
+        const clipped_width = @min(width, self.width - x);
+        const clipped_height = @min(height, self.height - y);
+        if (clipped_width < 2 or clipped_height < 2) return;
+        for (x + 1..x + clipped_width - 1) |column| {
             self.addBorder(column, y, 0b0011, style);
-            self.addBorder(column, y + height - 1, 0b0011, style);
+            self.addBorder(column, y + clipped_height - 1, 0b0011, style);
         }
-        for (y + 1..@min(y + height - 1, self.height)) |row| {
+        for (y + 1..y + clipped_height - 1) |row| {
             self.addBorder(x, row, 0b1100, style);
-            self.addBorder(x + width - 1, row, 0b1100, style);
+            self.addBorder(x + clipped_width - 1, row, 0b1100, style);
         }
         self.addBorder(x, y, 0b1010, style);
-        self.addBorder(x + width - 1, y, 0b1001, style);
-        self.addBorder(x, y + height - 1, 0b0110, style);
-        self.addBorder(x + width - 1, y + height - 1, 0b0101, style);
-        if (title.len > 0 and width > 4) self.writeText(x + 2, y, title, style);
+        self.addBorder(x + clipped_width - 1, y, 0b1001, style);
+        self.addBorder(x, y + clipped_height - 1, 0b0110, style);
+        self.addBorder(x + clipped_width - 1, y + clipped_height - 1, 0b0101, style);
+        if (title.len > 0 and clipped_width > 4) self.writeText(x + 2, y, title, style);
     }
 
     /// Adds line directions to an existing border cell, producing junctions

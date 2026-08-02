@@ -15,6 +15,7 @@ pub const ExecutionState = enum { empty, assembled, paused, running, halted, bre
 pub const BusView = enum { events, waveform };
 
 pub const DisplayScale = enum(u8) { x1 = 1, x2 = 2, x4 = 4 };
+pub const WaveformZoom = enum { x1, x2, x4, fit };
 
 pub const BusFilter = packed struct {
     opcode_fetch: bool = true,
@@ -144,7 +145,12 @@ pub const AppState = struct {
     display_fps: u16 = 0,
     display_fps_window_ms: i64 = 0,
     display_fps_window_frames: u16 = 0,
+    display_writer_pc: ?u16 = null,
+    display_writer_instruction: ?u64 = null,
     bus_filter: BusFilter = .{},
+    waveform_zoom: WaveformZoom = .x2,
+    waveform_pan: usize = 0,
+    waveform_follow_cursor: bool = true,
     linked_pc: ?u16 = null,
     linked_instruction_index: ?u64 = null,
     instruction_snapshots: [4096]?InstructionSnapshot = [_]?InstructionSnapshot{null} ** 4096,
@@ -225,6 +231,8 @@ pub const AppState = struct {
         self.executed_instructions = 0;
         self.linked_pc = null;
         self.linked_instruction_index = null;
+        self.waveform_pan = 0;
+        self.waveform_follow_cursor = true;
         @memset(&self.instruction_snapshots, null);
         self.resetDisplayTracking();
     }
@@ -387,7 +395,19 @@ pub const AppState = struct {
                     self.memoryCharacter(value);
                 } else if (self.active_screen == .bus and value == '[') {
                     self.moveView(.left);
-                } else if (self.active_screen == .bus and value == ']') self.moveView(.right);
+                } else if (self.active_screen == .bus and value == ']') {
+                    self.moveView(.right);
+                } else if (self.active_screen == .bus and (value == '+' or value == '=')) {
+                    self.zoomWaveform(true);
+                } else if (self.active_screen == .bus and value == '-') {
+                    self.zoomWaveform(false);
+                } else if (self.active_screen == .bus and (value == 'f' or value == 'F')) {
+                    self.setWaveformZoom(.fit);
+                } else if (self.active_screen == .bus and value == '<') {
+                    self.panWaveform(false);
+                } else if (self.active_screen == .bus and value == '>') {
+                    self.panWaveform(true);
+                }
             },
             .newline => if (self.active_screen == .editor and self.completion.active) {
                 try self.acceptCompletion(false);
@@ -411,14 +431,20 @@ pub const AppState = struct {
             },
             .move_cursor => |direction| {
                 if (self.active_screen == .editor and self.completion.active and (direction == .up or direction == .down)) {
-                    if (direction == .up) self.completion.selected -|= 1 else self.completion.selected = @min(self.completion.selected + 1, self.completion.len - 1);
+                    if (direction == .up) {
+                        self.completion.selected -|= 1;
+                    } else if (self.completion.boundedLen() > 0) {
+                        self.completion.selected = @min(self.completion.selected +| 1, self.completion.boundedLen() - 1);
+                    }
                 } else {
                     self.completion.active = false;
                     if (self.active_screen == .editor) self.follow_pc = false;
                     self.moveView(direction);
                 }
             },
-            .select_cursor => |direction| self.selectSource(direction),
+            .select_cursor => |direction| if (self.active_screen == .bus and (direction == .left or direction == .right)) {
+                self.panWaveform(direction == .right);
+            } else self.selectSource(direction),
             .save => try self.save(io),
             .assemble => self.assemble(),
             .run => self.runFromReset(),
@@ -519,7 +545,7 @@ pub const AppState = struct {
         return if (snapshot.instruction_index == instruction_index) snapshot else null;
     }
 
-    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "display scale 1x", "display scale 2x", "display scale 4x", "display grid", "bus filter all", "bus filter memory write", "quit" };
+    pub const palette_commands = [_][]const u8{ "go line", "go label", "rename label", "search", "breakpoint", "assemble", "run", "step", "continue", "memory", "display", "bus", "display scale 1x", "display scale 2x", "display scale 4x", "display grid", "bus filter all", "bus filter memory write", "waveform zoom 1x", "waveform zoom 2x", "waveform zoom 4x", "waveform zoom fit", "execution overlay", "quit" };
 
     fn applyPalette(self: *AppState, action: Command, io: Io) !void {
         switch (action) {
@@ -570,7 +596,16 @@ pub const AppState = struct {
                         self.active_screen = .bus;
                         self.alignTraceSelection();
                     },
-                    18 => {
+                    18 => self.setWaveformZoom(.x1),
+                    19 => self.setWaveformZoom(.x2),
+                    20 => self.setWaveformZoom(.x4),
+                    21 => self.setWaveformZoom(.fit),
+                    22 => {
+                        self.execution_overlay_enabled = !self.execution_overlay_enabled;
+                        if (!self.execution_overlay_enabled) self.execution_overlay = null;
+                        self.showToast(.info, "Execution overlay {s}", .{if (self.execution_overlay_enabled) "enabled" else "disabled"});
+                    },
+                    23 => {
                         if (self.source.dirty and !self.confirm_quit) {
                             self.confirm_quit = true;
                             self.palette.active = true;
@@ -597,7 +632,7 @@ pub const AppState = struct {
     }
 
     fn acceptCompletion(self: *AppState, trailing_space: bool) !void {
-        if (!self.completion.active or self.completion.selected >= self.completion.len) return;
+        if (!self.completion.active or self.completion.selected >= self.completion.boundedLen()) return;
         const item = self.completion.item(self.completion.selected);
         try self.source.replaceRange(self.completion.replace_start, self.completion.replace_end, item);
         self.completion.active = false;
@@ -916,6 +951,8 @@ pub const AppState = struct {
         self.display_fps_window_frames = 0;
         self.display_fps_window_ms = self.ui_now_ms;
         self.display_change_until_ms = 0;
+        self.display_writer_pc = null;
+        self.display_writer_instruction = null;
     }
 
     fn updateDisplayTracking(self: *AppState) void {
@@ -942,6 +979,15 @@ pub const AppState = struct {
             self.display_frame +|= 1;
             self.display_fps_window_frames +|= 1;
             self.display_change_until_ms = self.ui_now_ms + 300;
+            var trace_index = self.trace.len;
+            while (trace_index > 0) {
+                trace_index -= 1;
+                const event = self.trace.get(trace_index) orelse continue;
+                if (event.kind != .memory_write or event.address < 0xC000 or event.address >= 0xC400) continue;
+                self.display_writer_pc = event.pc;
+                self.display_writer_instruction = event.instruction_index;
+                break;
+            }
         }
     }
 
@@ -999,8 +1045,34 @@ pub const AppState = struct {
             if (!self.bus_filter.allows(event.kind)) continue;
             self.selected_trace_event = index;
             self.trace_follow = index == self.trace.len - 1;
+            self.waveform_follow_cursor = true;
             return;
         }
+    }
+
+    fn setWaveformZoom(self: *AppState, zoom: WaveformZoom) void {
+        self.waveform_zoom = zoom;
+        self.waveform_pan = 0;
+        self.waveform_follow_cursor = zoom != .fit;
+        self.active_screen = .bus;
+    }
+
+    fn zoomWaveform(self: *AppState, increase: bool) void {
+        self.waveform_zoom = if (increase) switch (self.waveform_zoom) {
+            .x1 => .x2,
+            .x2, .fit => .x4,
+            .x4 => .x4,
+        } else switch (self.waveform_zoom) {
+            .x4 => .x2,
+            .x2, .fit => .x1,
+            .x1 => .x1,
+        };
+        self.waveform_follow_cursor = true;
+    }
+
+    fn panWaveform(self: *AppState, forward: bool) void {
+        self.waveform_follow_cursor = false;
+        if (forward) self.waveform_pan = @min(self.waveform_pan +| 1, self.trace.len -| 1) else self.waveform_pan -|= 1;
     }
 };
 

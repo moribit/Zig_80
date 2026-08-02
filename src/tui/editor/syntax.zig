@@ -79,12 +79,18 @@ pub const Completion = struct {
     replace_start: usize = 0,
     replace_end: usize = 0,
     selected: usize = 0,
-    items: [16][32]u8 = undefined,
+    items: [16][32]u8 = [_][32]u8{[_]u8{0} ** 32} ** 16,
     lengths: [16]u8 = [_]u8{0} ** 16,
-    len: usize = 0,
+    len: u8 = 0,
 
     pub fn item(self: *const Completion, index: usize) []const u8 {
-        return self.items[index][0..self.lengths[index]];
+        if (index >= self.items.len or index >= self.len) return "";
+        const length = @min(@as(usize, self.lengths[index]), self.items[index].len);
+        return self.items[index][0..length];
+    }
+
+    pub fn boundedLen(self: *const Completion) usize {
+        return @min(@as(usize, self.len), self.items.len);
     }
 };
 
@@ -177,10 +183,11 @@ fn addLabels(result: *Completion, prefix: []const u8, source: []const u8) void {
     }
 }
 fn addCompletion(result: *Completion, value: []const u8) void {
-    if (result.len >= result.items.len or value.len > result.items[0].len) return;
-    for (0..result.len) |i| if (std.ascii.eqlIgnoreCase(result.item(i), value)) return;
-    @memcpy(result.items[result.len][0..value.len], value);
-    result.lengths[result.len] = @intCast(value.len);
+    const count = result.boundedLen();
+    if (count >= result.items.len or value.len > result.items[0].len) return;
+    for (0..count) |i| if (std.ascii.eqlIgnoreCase(result.item(i), value)) return;
+    @memcpy(result.items[count][0..value.len], value);
+    result.lengths[count] = @intCast(value.len);
     result.len += 1;
 }
 fn stripLabel(line: []const u8) []const u8 {

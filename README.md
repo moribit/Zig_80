@@ -39,6 +39,8 @@ The source-first TUI gives the editor roughly 70% of the normal layout, then rel
 
 The Display view presents the 128×64 1bpp output as a game screen with 1x, 2x, and 4x scales (2x by default), optional grid, pixel inspection, update count, changed-pixel count, and display-update FPS. Stepping links the observed source result, register before/after values, logical Bus accesses, and changed VRAM pixels; Bus selection also links its instruction PC and captured CPU state. Display scale/grid and Bus filters are available from `Ctrl+P`.
 
+The Logic Analyzer uses high/low traces with explicit rising and falling edges, a vertical time cursor, 1x/2x/4x/Fit zoom, and independent pan. Its time axis remains logical event order and is explicitly not cycle-accurate.
+
 The Source pane is Z80-aware rather than a general text editor: cached syntax tokens drive contextual mnemonic, register, directive, operand, and source-label completion; it also provides indentation, selection, Undo/Redo, incremental search, label navigation and rename, inline diagnostics and bytes, and short-lived overlays of actual Step results.
 
 TUI Run and Continue stop at default totals of 10,000,000 instructions or 100,000,000 T-states. Reset clears both totals; an explicit Step remains available after a limit stop.

@@ -284,6 +284,8 @@ test "frame clips content and diff emits only changes" {
     defer next.deinit();
     next.writeText(1, 0, "CPU", .{ .bold = true });
     next.writeText(7, 1, "XY", .{});
+    next.fillRect(std.math.maxInt(usize), std.math.maxInt(usize), 8, 8, 'X', .{});
+    next.box(std.math.maxInt(usize), std.math.maxInt(usize), 8, 8, "OUTSIDE", .{});
     try std.testing.expectEqual(@as(u21, 'C'), next.get(1, 0).codepoint);
     try std.testing.expectEqual(@as(u21, 'X'), next.get(7, 1).codepoint);
     var output: std.ArrayList(u8) = .empty;
@@ -430,16 +432,16 @@ test "logical bus waveform renders selection scrolling ascii and small terminals
     var ascii = try Frame.init(std.testing.allocator, 50, 14);
     defer ascii.deinit();
     bus_waveform.render(&ascii, Rect{ .x = 0, .y = 0, .width = 50, .height = 14 }, &state.trace, 0, false);
-    var found_hash = false;
-    for (ascii.cells) |cell| if (cell.codepoint == '#') {
-        found_hash = true;
+    var found_level = false;
+    for (ascii.cells) |cell| if (cell.codepoint == '=' or cell.codepoint == '_') {
+        found_level = true;
         break;
     };
-    try std.testing.expect(found_hash);
+    try std.testing.expect(found_level);
     ascii.clear();
     bus_waveform.render(&ascii, Rect{ .x = 0, .y = 0, .width = 24, .height = 14 }, &state.trace, state.trace.len - 1, false);
     var found_scrolled_selection = false;
-    for (ascii.cells) |cell| if (cell.style.reverse) {
+    for (ascii.cells) |cell| if (cell.codepoint == '|') {
         found_scrolled_selection = true;
         break;
     };
@@ -571,13 +573,14 @@ test "cpu register changes highlight temporarily and expire" {
     var frame = try Frame.init(std.testing.allocator, 50, 9);
     defer frame.deinit();
     tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 9 });
-    try std.testing.expect(frameContains(&frame, "HL C000 *"));
+    try std.testing.expect(frameContains(&frame, "HL 0000"));
     try std.testing.expect(frameContains(&frame, "REGISTERS"));
     try std.testing.expect(frameContains(&frame, "FLAGS"));
     state.tickUi(1400);
     frame.clear();
     tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 50, .height = 9 });
-    try std.testing.expect(!frameContains(&frame, "HL C000 *"));
+    try std.testing.expect(frameContains(&frame, "HL C000"));
+    try std.testing.expect(!frameContains(&frame, "HL 0000"));
 }
 
 test "toast renders without color dependency and expires after two seconds" {
@@ -642,7 +645,7 @@ test "dynamic layout replaces empty bus with getting started and expands after t
     try std.testing.expect(frameContains(&frame, "INSTRUCTION #"));
     try std.testing.expect(frameContains(&frame, "MNEMONIC"));
     try std.testing.expect(frameContains(&frame, "EVENTS"));
-    try std.testing.expect(frameContains(&frame, "LOGICAL WAVEFORM"));
+    try std.testing.expect(frameContains(&frame, "LOGICAL ANALYZER"));
 }
 
 test "pane focus context help and command palette follow active state" {
@@ -770,7 +773,7 @@ test "editor search jump history rename hover and execution overlay are integrat
 }
 
 fn completionHas(completion: *const editor_syntax.Completion, wanted: []const u8) bool {
-    for (0..completion.len) |index| if (std.mem.eql(u8, completion.item(index), wanted)) return true;
+    for (0..completion.boundedLen()) |index| if (std.mem.eql(u8, completion.item(index), wanted)) return true;
     return false;
 }
 
@@ -783,6 +786,17 @@ test "source frame renders completion inline code diagnostics overlay and select
     tui_app.renderSource(&completion_state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
     try std.testing.expect(frameContains(&frame, "COMPLETE"));
     try std.testing.expect(frameContains(&frame, "ldi"));
+    var short_frame = try Frame.init(std.testing.allocator, 48, 5);
+    defer short_frame.deinit();
+    tui_app.renderSource(&completion_state, &short_frame, Rect{ .x = 0, .y = 0, .width = 48, .height = 5 });
+
+    // Rendering must remain bounded even if mutable completion metadata is stale.
+    completion_state.completion.active = true;
+    completion_state.completion.len = std.math.maxInt(u8);
+    completion_state.completion.selected = std.math.maxInt(usize);
+    completion_state.completion.lengths[0] = std.math.maxInt(u8);
+    tui_app.renderSource(&completion_state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 14 });
+    try std.testing.expectEqual(@as(usize, 16), completion_state.completion.boundedLen());
 
     var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nhalt\n");
     defer state.deinit();
@@ -902,5 +916,74 @@ test "display palette and bus filter synchronize selected instruction" {
     frame.clear();
     tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 42, .height = 12 });
     try std.testing.expect(frameContains(&frame, "CPU (Instruction #0)"));
-    try std.testing.expect(frameContains(&frame, "HL C000 * <0000"));
+    try std.testing.expect(frameContains(&frame, "HL 0000"));
+}
+
+test "logic analyzer renders time transitions zoom pan and cursor" {
+    var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nld (hl),1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.runFromReset();
+    state.runSlice(10);
+
+    var frame = try Frame.init(std.testing.allocator, 100, 22);
+    defer frame.deinit();
+    bus_waveform.renderAnalyzer(&frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 22 }, &state.trace, 1, true, 0x7f, .{ .zoom = 2 });
+    try std.testing.expect(frameContains(&frame, "Time"));
+    try std.testing.expect(frameContains(&frame, "NOT CYCLE-ACCURATE"));
+    try std.testing.expect(frameContains(&frame, "Instruction #0"));
+    try std.testing.expect(frameContains(&frame, "/MREQ"));
+    try std.testing.expect(frameContains(&frame, "[0000]"));
+    try std.testing.expect(frameContains(&frame, "[21]"));
+    try std.testing.expect(frameContains(&frame, "Cursor #1"));
+    try std.testing.expect(frameContains(&frame, "Operand Read"));
+    try std.testing.expectEqual(@as(u21, '│'), frame.get(22, 16).codepoint);
+    var found_corner = false;
+    var found_cursor = false;
+    for (frame.cells) |cell| {
+        found_corner = found_corner or cell.codepoint == '┌' or cell.codepoint == '┐' or cell.codepoint == '└' or cell.codepoint == '┘';
+        found_cursor = found_cursor or cell.codepoint == '│' and cell.style.fg == .yellow;
+    }
+    try std.testing.expect(found_corner);
+    try std.testing.expect(found_cursor);
+
+    frame.clear();
+    bus_waveform.renderAnalyzer(&frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 22 }, &state.trace, 0, false, 0x7f, .{ .zoom = 4 });
+    try std.testing.expectEqual(@as(u21, '2'), frame.get(30, 2).codepoint); // 11-cell zoom spacing
+    frame.clear();
+    bus_waveform.renderAnalyzer(&frame, Rect{ .x = 0, .y = 0, .width = 25, .height = 22 }, &state.trace, 0, false, 0x7f, .{ .zoom = 1, .pan = 1, .follow_cursor = false });
+    try std.testing.expectEqual(@as(u21, '1'), frame.get(8, 2).codepoint);
+}
+
+test "phase two cards expose bus summary display writer vertical flags and overlay toggle" {
+    var state = try AppState.init(std.testing.allocator, null, "ld hl,0xC000\nld (hl),1\nhalt\n");
+    defer state.deinit();
+    state.attachTrace();
+    state.step();
+    state.step();
+
+    var frame = try Frame.init(std.testing.allocator, 100, 22);
+    defer frame.deinit();
+    state.active_screen = .bus;
+    tui_app.renderBus(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 22 });
+    try std.testing.expect(frameContains(&frame, "OPCODE"));
+    try std.testing.expect(frameContains(&frame, "MEMORY 1"));
+    try std.testing.expect(frameContains(&frame, "I/O 0"));
+
+    frame.clear();
+    state.active_screen = .display;
+    tui_app.renderDisplay(&state, &frame, Rect{ .x = 0, .y = 0, .width = 100, .height = 22 });
+    try std.testing.expect(frameContains(&frame, "WRITER"));
+    try std.testing.expect(frameContains(&frame, "LD (HL),0x01"));
+
+    frame.clear();
+    tui_app.renderCpu(&state, &frame, Rect{ .x = 0, .y = 0, .width = 44, .height = 12 });
+    try std.testing.expect(frameContains(&frame, "S  0"));
+    try std.testing.expect(frameContains(&frame, "PV 0"));
+
+    try state.apply(.open_palette, std.testing.io);
+    state.palette.selected = 22;
+    try state.apply(.newline, std.testing.io);
+    try std.testing.expect(!state.execution_overlay_enabled);
+    try std.testing.expect(state.execution_overlay == null);
 }
