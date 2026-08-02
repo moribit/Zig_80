@@ -13,6 +13,10 @@
 
 Separate values from addresses, understand parentheses, inspect little-endian words, and read Zig_80's memory map.
 
+## How the Z80 works
+
+Memory is an address-indexed byte array outside the CPU. Parenthesized operands request a memory access. Z80 words place their low byte at the lower address.
+
 ```asm
 ld hl,0x8000     ; put value 8000 in HL
 ld (hl),0x2A     ; use HL as an address and write
@@ -20,7 +24,22 @@ ld a,(hl)        ; read from that address
 halt
 ```
 
-## Step through memory
+## Try it with the CLI
+
+Save the program as `memory.asm`, then assemble it and use `memory 0x8000 2` in the debugger.
+
+```console
+zig build run -- asm memory.asm -o zig-out/memory.bin
+zig build run -- debug zig-out/memory.bin
+```
+
+## Observe it in the TUI
+
+```console
+zig build run -- tui memory.asm
+```
+
+### Step through memory
 
 ```text
 Step 1  HL 0000→8000; operand reads; memory unchanged
@@ -64,4 +83,3 @@ This is Zig_80's map, not a universal Z80 map. The current program area is not w
 Write `7F` to `8010`. Predict HL, Bus address/data, the Memory cell, and whether Display changes (it should not; this is RAM).
 
 [← Previous](02-register.md) | [Contents](README.md) | [Next →](04-branch.md)
-

@@ -1,8 +1,8 @@
-# Zig_80 IDE Tutorial
+# Getting Started with Z80 and Zig_80
 
 [日本語](README.ja.md)
 
-This course is for modern programmers who are new to the Z80, assembly language, and CPU hardware. It uses the Zig_80 IDE as a learning instrument rather than presenting an assembler reference to memorize.
+This tutorial is for modern programmers who are new to the Z80, assembly language, and CPU hardware. Its subject is Z80 programming; Zig_80 provides complementary CLI and TUI tools for writing, assembling, running, debugging, and observing programs.
 
 ## How to use the course
 
@@ -30,7 +30,6 @@ You do not need to understand every pane at once. At first, follow the `▶` cur
 | [06 From VRAM to pixels](06-display.md) | CPU→Bus→VRAM→Display and Inspector | Source, Bus, Display |
 | [07 Logic Analyzer](07-bus.md) | fetches, operands, writes, address/data/events | Bus, Logic Analyzer |
 | [08 Small projects](08-projects.md) | Counter, Pixel, Pong, Game of Life | all panes |
-| [09 Reference](09-reference.md) | CLI, syntax, supported instructions, diagnostics | consult as needed |
 
 ```text
 Source instruction ── assemble ──> machine-code bytes
@@ -41,5 +40,6 @@ Source instruction ── assemble ──> machine-code bytes
                                   Bus ── RAM / VRAM ── Display
 ```
 
-[Next: 00 Introduction →](00-introduction.md)
+For lookup material, use the separate [Reference](../reference/README.md). For task-oriented material, use [Guides](../guides/README.md).
 
+[Next: 00 Introduction →](00-introduction.md)

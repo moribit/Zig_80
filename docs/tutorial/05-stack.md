@@ -13,6 +13,25 @@
 
 Explain why CALL changes both PC and SP, observe a downward-growing LIFO Stack, and save register pairs safely.
 
+## How the Z80 works
+
+CALL stores the return address on a memory Stack and replaces PC. RET restores that address. The Z80 Stack grows toward lower addresses.
+
+## Try it with the CLI
+
+Save the source below as `call.asm`, assemble it, then use `step` and `memory 0xBFF0 16`.
+
+```console
+zig build run -- asm call.asm -o zig-out/call.bin
+zig build run -- debug zig-out/call.bin
+```
+
+## Observe it in the TUI
+
+```console
+zig build run -- tui call.asm
+```
+
 ```asm
 org 0x0000
 start:
@@ -52,4 +71,3 @@ Register pairs can be preserved with `PUSH AF|BC|DE|HL` and restored in reverse 
 Inside `twice`, PUSH AF, change A, then POP AF. Confirm that A returns and SP decreases and recovers.
 
 [← Previous](04-branch.md) | [Contents](README.md) | [Next →](06-display.md)
-

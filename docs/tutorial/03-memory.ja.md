@@ -16,7 +16,11 @@
 - 16 bit値のLittle Endian配置を見る
 - Zig_80固有のMemory Mapを読む
 
-## Memoryは番号付きbyte列
+## Z80の仕組み
+
+メモリはCPU外部のAddress付きbyte列です。括弧付きOperandはMemory Accessを要求します。Z80のwordは下位byteを低いAddressへ置きます。
+
+### メモリは番号付きbyte列
 
 ```text
 Address   8000  8001  8002  8003
@@ -31,9 +35,9 @@ ld a,(hl)        ; HLをAddressとしてMemoryからAへ読む
 
 括弧の有無で意味が変わります。
 
-## 3命令をStepする
+## CLIで試す
 
-次を`memory.asm`としてTUIで開きます。
+次を`memory.asm`として保存します。
 
 ```asm
 org 0x0000
@@ -43,6 +47,21 @@ start:
     ld a,(hl)
     halt
 ```
+
+```console
+zig build run -- asm memory.asm -o zig-out/memory.bin
+zig build run -- debug zig-out/memory.bin
+```
+
+Debuggerで`memory 0x8000 2`を使います。
+
+## TUIで観察する
+
+```console
+zig build run -- tui memory.asm
+```
+
+### 3命令をStepする
 
 ```text
 Step 1
@@ -126,4 +145,3 @@ Write先を`0x8010`、値を`0x7F`へ変更します。Step前に次を予想し
 - Displayが変化するか（RAMなので変化しません）
 
 [← 前](02-register.ja.md) | [目次](README.ja.md) | [次: 分岐 →](04-branch.ja.md)
-

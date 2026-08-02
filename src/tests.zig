@@ -3,6 +3,7 @@ const Cpu = @import("cpu/cpu.zig").Cpu;
 const Bus = @import("machine/bus.zig").Bus;
 const Machine = @import("machine/machine.zig").Machine;
 const flags = @import("cpu/flags.zig");
+const instruction = @import("cpu/instruction.zig");
 const assembler = @import("assembler/assembler.zig");
 const disassembler = @import("disassembler/disassembler.zig");
 const video = @import("machine/video.zig");
@@ -21,6 +22,10 @@ const tui_app = @import("tui/app.zig");
 const bus_waveform = @import("tui/bus_waveform.zig");
 const Rect = @import("tui/layout.zig").Rect;
 const editor_syntax = @import("tui/editor/syntax.zig");
+
+test {
+    _ = @import("documentation_test.zig");
+}
 
 fn execute(program: []const u8) !struct { Cpu, Bus } {
     var bus = Bus{};
@@ -81,6 +86,158 @@ test "load add flags and halt" {
     try std.testing.expect(flags.isSet(state[0].registers.f, flags.C));
     try std.testing.expect(flags.isSet(state[0].registers.f, flags.H));
     try std.testing.expectEqual(@as(u16, 6), state[0].registers.pc);
+}
+
+test "logical instruction metadata opcodes timing flags and edge cases" {
+    try std.testing.expectEqual(@as(?u8, 6), instruction.register8Code("(hl)"));
+    try std.testing.expectEqualStrings("A", instruction.register8Name(7));
+    try std.testing.expect(instruction.ldRegisterOpcode(6, 6) == null);
+
+    for (instruction.logic_families) |family| {
+        for (0..8) |source_index| {
+            const source: u8 = @intCast(source_index);
+            var bus = Bus{};
+            var trace_buffer = trace.TraceBuffer{};
+            bus.trace_sink = trace_buffer.sink();
+            bus.memory[0] = family.register_base + source;
+            var cpu = Cpu{};
+            cpu.registers.a = 0x5a;
+            cpu.registers.b = 0x81;
+            cpu.registers.c = 0x7f;
+            cpu.registers.d = 0xff;
+            cpu.registers.e = 0x01;
+            cpu.registers.h = 0x90;
+            cpu.registers.l = 0x00;
+            bus.memory[0x9000] = 0xa5;
+            const operand = switch (source) {
+                0 => cpu.registers.b,
+                1 => cpu.registers.c,
+                2 => cpu.registers.d,
+                3 => cpu.registers.e,
+                4 => cpu.registers.h,
+                5 => cpu.registers.l,
+                6 => bus.memory[0x9000],
+                7 => cpu.registers.a,
+                else => unreachable,
+            };
+            const operation: flags.LogicOperation = if (std.mem.eql(u8, family.mnemonic, "AND")) .@"and" else if (std.mem.eql(u8, family.mnemonic, "XOR")) .xor else .@"or";
+            const expected = flags.logic8(operation, 0x5a, operand);
+            const step = try cpu.step(&bus);
+            try std.testing.expectEqual(family.register_base + source, step.opcode);
+            const expected_size = if (source == 6) family.indirect_size else family.register_size;
+            try std.testing.expectEqual(@as(u16, expected_size), step.pc_after);
+            try std.testing.expectEqual(if (source == 6) family.indirect_t_states else family.register_t_states, step.t_states);
+            try std.testing.expectEqual(expected.value, cpu.registers.a);
+            try std.testing.expectEqual(expected.flags, cpu.registers.f);
+            try std.testing.expectEqual(@as(usize, if (source == 6) 2 else 1), trace_buffer.len);
+            if (source == 6) try std.testing.expectEqual(trace.BusEventKind.memory_read, trace_buffer.get(1).?.kind);
+        }
+
+        var immediate_bus = Bus{};
+        immediate_bus.memory[0] = family.immediate_opcode;
+        immediate_bus.memory[1] = 0x3c;
+        var immediate_cpu = Cpu{};
+        immediate_cpu.registers.a = 0xc3;
+        const operation: flags.LogicOperation = if (std.mem.eql(u8, family.mnemonic, "AND")) .@"and" else if (std.mem.eql(u8, family.mnemonic, "XOR")) .xor else .@"or";
+        const expected = flags.logic8(operation, 0xc3, 0x3c);
+        const step = try immediate_cpu.step(&immediate_bus);
+        try std.testing.expectEqual(family.immediate_opcode, step.opcode);
+        try std.testing.expectEqual(@as(u16, family.immediate_size), step.pc_after);
+        try std.testing.expectEqual(family.immediate_t_states, step.t_states);
+        try std.testing.expectEqual(expected.value, immediate_cpu.registers.a);
+        try std.testing.expectEqual(expected.flags, immediate_cpu.registers.f);
+    }
+
+    try std.testing.expectEqual(@as(u8, flags.S | flags.H | flags.PV), flags.logic8(.@"and", 0xff, 0x81).flags);
+    try std.testing.expectEqual(@as(u8, flags.Z | flags.PV), flags.logic8(.xor, 0xa5, 0xa5).flags);
+    try std.testing.expectEqual(@as(u8, flags.S | flags.PV), flags.logic8(.@"or", 0x80, 0x01).flags);
+}
+
+test "register load family covers registers indirect memory timing and trace" {
+    for (0..8) |destination_index| {
+        for (0..8) |source_index| {
+            const destination: u8 = @intCast(destination_index);
+            const source: u8 = @intCast(source_index);
+            const opcode = instruction.ldRegisterOpcode(destination, source) orelse continue;
+            var bus = Bus{};
+            var trace_buffer = trace.TraceBuffer{};
+            bus.trace_sink = trace_buffer.sink();
+            bus.memory[0] = opcode;
+            var cpu = Cpu{};
+            cpu.registers.setBC(0x1122);
+            cpu.registers.setDE(0x3344);
+            cpu.registers.setHL(0x9000);
+            cpu.registers.a = 0x77;
+            bus.memory[0x9000] = 0xaa;
+            const source_value: u8 = switch (source) {
+                0 => 0x11,
+                1 => 0x22,
+                2 => 0x33,
+                3 => 0x44,
+                4 => 0x90,
+                5 => 0x00,
+                6 => 0xaa,
+                7 => 0x77,
+                else => unreachable,
+            };
+            const step = try cpu.step(&bus);
+            try std.testing.expectEqual(@as(u16, instruction.ldRegisterSize(destination, source)), step.pc_after);
+            try std.testing.expectEqual(instruction.ldRegisterTStates(destination, source), step.t_states);
+            if (destination == 6) {
+                try std.testing.expectEqual(source_value, bus.memory[0x9000]);
+                try std.testing.expectEqual(trace.BusEventKind.memory_write, trace_buffer.latest().?.kind);
+            } else {
+                const actual: u8 = switch (destination) {
+                    0 => cpu.registers.b,
+                    1 => cpu.registers.c,
+                    2 => cpu.registers.d,
+                    3 => cpu.registers.e,
+                    4 => cpu.registers.h,
+                    5 => cpu.registers.l,
+                    7 => cpu.registers.a,
+                    else => unreachable,
+                };
+                try std.testing.expectEqual(source_value, actual);
+                if (source == 6) try std.testing.expectEqual(trace.BusEventKind.memory_read, trace_buffer.latest().?.kind);
+            }
+            try std.testing.expectEqual(@as(usize, if (destination == 6 or source == 6) 2 else 1), trace_buffer.len);
+        }
+    }
+}
+
+test "assembler and disassembler synchronize logical and register load families" {
+    const source =
+        \\org 0
+        \\ld b,a
+        \\ld c,(hl)
+        \\ld (hl),d
+        \\and b
+        \\and (hl)
+        \\and 0x55
+        \\xor c
+        \\xor (hl)
+        \\xor 0xaa
+        \\or d
+        \\or (hl)
+        \\or 0x80
+    ;
+    var assembled = try assembler.assemble(std.testing.allocator, source);
+    defer assembled.deinit();
+    const expected = [_]u8{ 0x47, 0x4e, 0x72, 0xa0, 0xa6, 0xe6, 0x55, 0xa9, 0xae, 0xee, 0xaa, 0xb2, 0xb6, 0xf6, 0x80 };
+    try std.testing.expectEqualSlices(u8, &expected, assembled.bytes.items);
+
+    const expected_text = [_][]const u8{
+        "LD B,A", "LD C,(HL)", "LD (HL),D", "AND B", "AND (HL)", "AND 0x55",
+        "XOR C",  "XOR (HL)",  "XOR 0xAA",  "OR D",  "OR (HL)",  "OR 0x80",
+    };
+    var address: u16 = 0;
+    for (expected_text) |wanted| {
+        const decoded = disassembler.decode(assembled.bytes.items, address);
+        try std.testing.expectEqualStrings(wanted, disassembler.text(&decoded));
+        address +%= decoded.size;
+    }
+    try std.testing.expectEqual(@as(usize, assembled.bytes.items.len), address);
+    try std.testing.expectError(error.InvalidOperand, assembler.assemble(std.testing.allocator, "ld (hl),(hl)"));
 }
 test "absolute load advances PC past the 16-bit address" {
     var bus = Bus{};

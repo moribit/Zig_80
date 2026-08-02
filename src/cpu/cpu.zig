@@ -1,5 +1,6 @@
 const Registers = @import("registers.zig").Registers;
 const flags = @import("flags.zig");
+const instruction = @import("instruction.zig");
 const Bus = @import("../machine/bus.zig").Bus;
 
 pub const CpuError = error{UnknownOpcode};
@@ -40,14 +41,7 @@ pub const Cpu = struct {
             0x11 => self.ld16(bus, .de),
             0x21 => self.ld16(bus, .hl),
             0x31 => self.ld16(bus, .sp),
-            0x7e => blk: {
-                self.registers.a = bus.readData8(self.registers.hl());
-                break :blk 7;
-            },
-            0x77 => blk: {
-                bus.write8(self.registers.hl(), self.registers.a);
-                break :blk 7;
-            },
+            0x40...0x75, 0x77...0x7f => self.ldRegister(bus, (op >> 3) & 7, op & 7),
             0x36 => blk: {
                 bus.write8(self.registers.hl(), self.fetch8(bus));
                 break :blk 10;
@@ -101,6 +95,12 @@ pub const Cpu = struct {
             0x90...0x95, 0x97 => self.sub(self.regValue(op & 7), 4, false),
             0xfe => self.sub(self.fetch8(bus), 7, true),
             0xb8...0xbd, 0xbf => self.sub(self.regValue(op & 7), 4, true),
+            0xa0...0xa7 => self.logic(bus, .@"and", op & 7),
+            0xa8...0xaf => self.logic(bus, .xor, op & 7),
+            0xb0...0xb7 => self.logic(bus, .@"or", op & 7),
+            0xe6 => self.logicImmediate(bus, .@"and"),
+            0xee => self.logicImmediate(bus, .xor),
+            0xf6 => self.logicImmediate(bus, .@"or"),
             0xc3 => blk: {
                 self.registers.pc = self.fetch16(bus);
                 break :blk 10;
@@ -192,6 +192,36 @@ pub const Cpu = struct {
             7 => self.registers.a,
             else => unreachable,
         };
+    }
+    fn setRegValue(self: *Cpu, code: u8, value: u8) void {
+        switch (code) {
+            0 => self.registers.b = value,
+            1 => self.registers.c = value,
+            2 => self.registers.d = value,
+            3 => self.registers.e = value,
+            4 => self.registers.h = value,
+            5 => self.registers.l = value,
+            7 => self.registers.a = value,
+            else => unreachable,
+        }
+    }
+    fn ldRegister(self: *Cpu, bus: *Bus, destination: u8, source: u8) u16 {
+        const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
+        if (destination == 6) bus.write8(self.registers.hl(), value) else self.setRegValue(destination, value);
+        return instruction.ldRegisterTStates(destination, source);
+    }
+    fn logic(self: *Cpu, bus: *Bus, operation: flags.LogicOperation, source: u8) u16 {
+        const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
+        const result_value = flags.logic8(operation, self.registers.a, value);
+        self.registers.a = result_value.value;
+        self.registers.f = result_value.flags;
+        return if (source == 6) 7 else 4;
+    }
+    fn logicImmediate(self: *Cpu, bus: *Bus, operation: flags.LogicOperation) u16 {
+        const result_value = flags.logic8(operation, self.registers.a, self.fetch8(bus));
+        self.registers.a = result_value.value;
+        self.registers.f = result_value.flags;
+        return 7;
     }
     fn add(self: *Cpu, v: u8, cycles: u16) u16 {
         const x = flags.add8(self.registers.a, v);

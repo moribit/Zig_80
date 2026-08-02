@@ -1,8 +1,8 @@
-# Zig_80 IDE チュートリアル
+# Zig_80によるZ80プログラミング入門
 
 [English](README.md)
 
-この教材は、Z80やAssemblyを知らない現代のProgrammerが、Zig_80 IDEを操作しながらCPUとComputer Architectureを学ぶためのCourseです。Referenceを先に暗記する必要はありません。各章の小さなProgramを`Ctrl+T`でStepし、画面の変化を順に追ってください。
+このチュートリアルは、Z80やアセンブリ言語（Assembly language）を知らない現代のプログラマーが、Z80プログラミングとコンピュータ構成を学ぶためのものです。Zig_80のCLIとTUIは、プログラムを書く、アセンブルする、実行する、デバッグする、観察するための対等な道具として扱います。
 
 ## 学び方
 
@@ -30,7 +30,6 @@
 | [06 VRAMからPixelへ](06-display.ja.md) | CPU→Bus→VRAM→Display、Inspector | Source、Bus、Display |
 | [07 Logic Analyzer](07-bus.ja.md) | Fetch、Operand、Write、Address/Data/Event | Bus、Logic Analyzer |
 | [08 小さなProject](08-projects.ja.md) | Counter、Pixel、Pong、Game of Life | 全Pane |
-| [09 Reference](09-reference.ja.md) | CLI、Syntax、対応命令、Diagnostic、用語 | 必要な時だけ参照 |
 
 ## Courseの到達点
 
@@ -49,5 +48,6 @@ Bus ── RAM / Input / VRAM ── Display
 
 最後には、自分で短いROMを書き、どの命令がどのRegister、Memory Address、Bus Event、Pixelを変えたかをIDE上で説明できることを目指します。
 
-[次: 00 はじめに →](00-introduction.ja.md)
+必要な仕様は独立した[リファレンス](../reference/README.ja.md)、目的別の手順は[ガイド](../guides/README.ja.md)を参照してください。
 
+[次: 00 はじめに →](00-introduction.ja.md)

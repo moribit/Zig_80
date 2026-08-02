@@ -13,9 +13,20 @@
 
 Connect source to machine code, follow fetch/decode/execute, and explain PC movement from instruction length.
 
+## How the Z80 works
+
+An instruction begins with an opcode and may contain immediate operand bytes. PC advances by the encoded size unless execution replaces it with a branch target.
+
+## Try it with the CLI
+
 ```console
 zig build run -- asm examples/add.asm -o zig-out/add.bin
 zig build run -- disasm zig-out/add.bin
+```
+
+## Observe it in the TUI
+
+```console
 zig build run -- tui examples/add.asm
 ```
 
@@ -30,7 +41,7 @@ The generated sequence begins:
 
 `LD` is a mnemonic; A and 10 are operands. `3E` is the opcode and `0A` is the immediate byte.
 
-## Step through it
+### Step through it
 
 ```text
 Step 1  LD A,10   PC 0000→0002, A 00→0A

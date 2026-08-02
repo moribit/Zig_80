@@ -15,11 +15,20 @@
 - Fetch→Decode→ExecuteをIDE上で追う
 - 命令長に応じてPCが進むことを確認する
 
-## 1. SourceをMachine Codeへ変換する
+## Z80の仕組み
+
+命令はOpcodeから始まり、必要に応じて即値Operand byteが続きます。分岐しない場合、PCは生成された命令Sizeだけ進みます。
+
+## CLIで試す
 
 ```console
 zig build run -- asm examples/add.asm -o zig-out/add.bin
 zig build run -- disasm zig-out/add.bin
+```
+
+## TUIで観察する
+
+```console
 zig build run -- tui examples/add.asm
 ```
 
@@ -35,7 +44,7 @@ ADDR  BYTES     SOURCE
 
 Mnemonicは操作名、Operandは対象です。`LD A,10`では`LD`がMnemonic、`A`と`10`がOperandです。最初のbyte`3E`がOpcode、次の`0A`が即値Operandです。
 
-## 2. LD A,10をStepする
+### LD A,10をStepする
 
 `Ctrl+T`を1回押します。
 
@@ -51,7 +60,7 @@ Display         no change
 
 PCが2進んだのは、Opcodeと1 byte Operandで命令長が2 byteだからです。
 
-## 3. LD B,20をStepする
+### LD B,20をStepする
 
 ```text
 Step 2
@@ -64,7 +73,7 @@ Bus             Fetch [0002]=06, Operand [0003]=14
 
 Sourceには10進の20、Machine Codeには16進の`14`が表示されます。同じ値を異なる表記で見ています。
 
-## 4. ADDとHALTをStepする
+### ADDとHALTをStepする
 
 ```text
 Step 3

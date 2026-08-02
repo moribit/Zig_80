@@ -1,6 +1,6 @@
 # 08 Small projects: combine the execution flow
 
-[← Previous](07-bus.md) | [Contents](README.md) | [日本語](08-projects.ja.md) | [Next: Reference →](09-reference.md)
+[← Previous](07-bus.md) | [Contents](README.md) | [日本語](08-projects.ja.md) | [Reference](../reference/README.md)
 
 ## Panels to watch
 
@@ -29,21 +29,83 @@ main_loop:
 
 ## Exercise 1: Counter
 
-Count A from five to zero and HALT. Observe A/Z after DEC, PC on taken/not-taken JR, and each iteration through a breakpoint. Extend it by loading the initial value from RAM `8000`.
+### Goal
+
+Count A from five to zero and HALT.
+
+### Prerequisites and starter
+
+Complete Chapters 02 and 04, then copy [the starter](starters/counter.asm).
+
+### Expected behavior
+
+A changes 5→4→3→2→1→0, Z becomes set at zero, the final JR is not taken, and the program HALTs.
+
+### Verification
+
+```console
+zig build run -- asm counter.asm -o zig-out/counter.bin
+zig build run -- disasm zig-out/counter.bin
+zig build run -- test zig-out/counter.bin
+```
+
+In TUI, break on DEC and record A on each visit.
+
+### Hint, solution, and extensions
+
+Use `DEC A` followed by `JR NZ,loop`. Compare with the [solution](solutions/counter.asm). Extend it by loading the initial value from RAM `8000`, or by moving the counter to B.
 
 ## Exercise 2: Pixel painter
 
-Write patterns to three calculated VRAM addresses. Check HL diffs, Memory Write address/data, changed pixels, Inspector, and Source overlay. Extend it with a `draw_byte` subroutine using HL and A.
+### Goal
+
+Draw pixel `(10,9)`, then expand the program to three calculated VRAM bytes.
+
+### Prerequisites and starter
+
+Complete Chapters 03, 06, and 07, then copy [the starter](starters/pixel.asm).
+
+### Expected behavior and verification
+
+The first write is address `C08A`, bit 1, data `02`. Assemble and run with `--screen`, then Step in TUI and verify HL, Memory Write address/data, changed pixel, Inspector, and Source overlay.
+
+### Hint, solution, and extensions
+
+Use `C000 + (y/8)*128+x`. Compare with the [solution](solutions/pixel.asm). Add two pixels, then make a `draw_byte` subroutine using HL/A and initialize SP before CALL.
 
 ## Exercise 3: Pong
 
-Open [`examples/pinpon.asm`](../../examples/pinpon.asm), Run with `Ctrl+E`, switch to Display, then pause with Escape. Read initialization, HL as ball address, B as distance counter, C as delay, RAM `8000` as direction, and CP/JR as direction selection.
+### Goal and prerequisites
+
+After Chapters 04–07, understand and modify a continuously moving ball.
+
+### Starter and solution
+
+Use [`examples/pinpon.asm`](../../examples/pinpon.asm); it is both a working starter and the current autonomous solution.
+
+### Expected behavior and verification
+
+Run with `Ctrl+E`, switch to Display, and pause with Escape. The ball must bounce between fixed paddles without HALT. Inspect initialization, HL as ball address, B as distance counter, C as delay, RAM `8000` as direction, and CP/JR as direction selection. Verify direction changes in Memory and VRAM writes in Bus.
+
+### Hints and extensions
 
 Challenges: change ball pattern `18` to `3C`, alter delay, move paddles inward, and inspect only VRAM writes. Paddles remain fixed because real-time game input is not implemented.
 
 ## Exercise 4: Game of Life
 
-Open [`examples/game_of_life.asm`](../../examples/game_of_life.asm). It alternates precomputed vertical `38` and horizontal `10` patterns rather than implementing a general neighbor engine.
+### Goal and prerequisites
+
+After the Display and Branch chapters, trace one complete two-state blinker animation.
+
+### Starter and solution
+
+Use [`examples/game_of_life.asm`](../../examples/game_of_life.asm). It is a working pattern-animation solution, not a general Game of Life engine.
+
+### Expected behavior and verification
+
+The cells alternate vertical/horizontal indefinitely. Pause, Step one generation, and verify all writes in Bus and changed pixels in Display. The source alternates precomputed `38` and `10` patterns rather than counting neighbors.
+
+### Hints and extensions
 
 Challenges: move CENTER, shift the three bits, change outer delay B, then pause and record every write in one generation.
 
@@ -56,8 +118,12 @@ Delay loops do not imply a physical MHz rate. Apparent speed depends on host wor
 - Use the palette for Assemble, Views, and overlays; `Ctrl+E` resets and runs from the start.
 - Save at small checkpoints and disassemble each generated ROM.
 
+## Challenge: complete one vertical slice
+
+Choose Counter or Pixel Painter and finish Goal through Verification without copying the solution first. Record one instruction as Source, PC, opcode bytes, register diff, Bus event, and visible/memory result.
+
 ## Usage-phase feedback
 
 Record OS, terminal, Zig version, terminal size, goal, exact command/keys, expected behavior, actual behavior, minimal `.asm`, and which Source/CPU/Bus/Display relationship was unclear.
 
-[← Previous](07-bus.md) | [Contents](README.md) | [Next →](09-reference.md)
+[← Previous](07-bus.md) | [Contents](README.md) | [Reference](../reference/README.md)

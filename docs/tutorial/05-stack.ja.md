@@ -15,7 +15,26 @@
 - StackがLIFOで低Address方向へ伸びることを確認する
 - Register Pairを安全に一時保存する
 
-## SubroutineをStepする
+## Z80の仕組み
+
+CALLは戻りAddressをMemory Stackへ保存してPCを置換し、RETはそのAddressを復元します。Z80 Stackは低Address方向へ伸びます。
+
+## CLIで試す
+
+下のSourceを`call.asm`として保存し、Debuggerで`step`と`memory 0xBFF0 16`を使います。
+
+```console
+zig build run -- asm call.asm -o zig-out/call.bin
+zig build run -- debug zig-out/call.bin
+```
+
+## TUIで観察する
+
+```console
+zig build run -- tui call.asm
+```
+
+### SubroutineをStepする
 
 ```asm
 org 0x0000
@@ -89,4 +108,3 @@ StackはLast In, First Outです。後にPushしたPairから逆順にPopしま�
 `twice`内でAFを`PUSH`し、Aを別の値へ変更してから`POP AF`してください。Aが元へ戻ること、SPが一度減って元へ戻ることをStepで確認します。
 
 [← 前](04-branch.ja.md) | [目次](README.ja.md) | [次: Display →](06-display.ja.md)
-

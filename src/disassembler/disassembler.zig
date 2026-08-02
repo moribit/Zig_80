@@ -1,4 +1,5 @@
 const std = @import("std");
+const instruction = @import("../cpu/instruction.zig");
 
 pub const Decoded = struct { address: u16, size: u8, bytes: [3]u8 = .{ 0, 0, 0 }, text: [32]u8 = undefined, text_len: usize = 0 };
 
@@ -33,8 +34,11 @@ pub fn decode(data: []const u8, address: u16) Decoded {
             const name: []const u8 = if (op == 0x01) "BC" else if (op == 0x11) "DE" else if (op == 0x21) "HL" else "SP";
             w(&d, "LD {s},0x{X:0>4}", .{ name, word(d) });
         },
-        0x7e => w(&d, "LD A,(HL)", .{}),
-        0x77 => w(&d, "LD (HL),A", .{}),
+        0x40...0x75, 0x77...0x7f => {
+            const destination = (op >> 3) & 7;
+            const source = op & 7;
+            w(&d, "LD {s},{s}", .{ instruction.register8Name(destination), instruction.register8Name(source) });
+        },
         0x36 => {
             d.size = 2;
             d.bytes[1] = byte(data, i + 1);
@@ -67,6 +71,16 @@ pub fn decode(data: []const u8, address: u16) Decoded {
             const regs = [_][]const u8{ "B", "C", "D", "E", "H", "L", "?", "A" };
             const name: []const u8 = if (op < 0x90) "ADD A," else if (op < 0xb8) "SUB" else "CP";
             w(&d, "{s} {s}", .{ name, regs[op & 7] });
+        },
+        0xa0...0xb7 => {
+            const decoded = instruction.logicByOpcode(op).?;
+            w(&d, "{s} {s}", .{ decoded.family.mnemonic, instruction.register8Name(decoded.register_code.?) });
+        },
+        0xe6, 0xee, 0xf6 => {
+            d.size = 2;
+            d.bytes[1] = byte(data, i + 1);
+            const decoded = instruction.logicByOpcode(op).?;
+            w(&d, "{s} 0x{X:0>2}", .{ decoded.family.mnemonic, d.bytes[1] });
         },
         0x3c, 0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x23, 0x3d, 0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x2b => {
             const is_inc = op == 0x3c or op == 0x04 or op == 0x0c or op == 0x14 or op == 0x1c or op == 0x24 or op == 0x2c or op == 0x23;

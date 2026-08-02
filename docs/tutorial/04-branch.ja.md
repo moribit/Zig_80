@@ -15,7 +15,26 @@
 - Z Flagで次のPCが選ばれる様子を見る
 - 有限Loopと無限Loopを安全に扱う
 
-## Counter Loop
+## Z80の仕組み
+
+分岐命令は通常の次PCを別Addressへ置換します。条件分岐は以前の命令が設定したFlagを読み、Source Registerを直接調べません。
+
+## CLIで試す
+
+[Counter Solution](solutions/counter.asm)を使います。
+
+```console
+zig build run -- asm docs/tutorial/solutions/counter.asm -o zig-out/counter.bin
+zig build run -- debug zig-out/counter.bin
+```
+
+## TUIで観察する
+
+```console
+zig build run -- tui docs/tutorial/solutions/counter.asm
+```
+
+### Counter Loop
 
 ```asm
 org 0x0000
@@ -49,7 +68,7 @@ Step 8  HALT
 
 近いLoopには短いJR、遠い場所にはJPを使えます。JR範囲外ではAssemblerがDiagnosticと`JP`を使うHintを表示します。
 
-## BreakpointでLoopを止める
+### BreakpointでLoopを止める
 
 1. `DEC B`行へ編集Cursorを置く
 2. `Ctrl+B`で`●`を付ける
@@ -89,4 +108,3 @@ zig build run -- run program.bin --max-instructions 1000 --max-cycles 10000
 Bの初期値を5へ変更します。RunせずStepし、`DEC`が何回、`JR`が何回実行されるか予想してください。次にBreakpointを使い、Continueを繰り返してBだけを記録します。
 
 [← 前](03-memory.ja.md) | [目次](README.ja.md) | [次: Stack →](05-stack.ja.md)
-

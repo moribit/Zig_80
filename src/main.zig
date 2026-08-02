@@ -10,7 +10,7 @@ const TuiState = @import("tui/state.zig").AppState;
 const tui_event_loop = @import("tui/event_loop.zig");
 
 const usage =
-    \\Zig_80 - educational Z80 development environment
+    \\Zig_80 - integrated Z80 development environment
     \\
     \\Usage:
     \\  zig80 asm <source.asm> -o <output.bin>

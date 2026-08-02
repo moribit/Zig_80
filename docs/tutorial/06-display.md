@@ -14,6 +14,19 @@
 
 Follow one `CPU → Bus → VRAM → Display` operation and calculate a pixel's address, bit, and mask.
 
+## How the Z80 works
+
+The CPU only writes a byte to an address. The Machine's memory map makes that address VRAM, and the Display layout interprets its bits as pixels.
+
+## Try it with the CLI
+
+```console
+zig build run -- asm examples/pixel.asm -o zig-out/pixel.bin
+zig build run -- run zig-out/pixel.bin --screen
+```
+
+## Observe it in the TUI
+
 ```console
 zig build run -- tui examples/pixel.asm
 ```
@@ -79,7 +92,7 @@ mask    = 1 << bit
 | `(0,8)` | C080 | 0 | 01 |
 | `(64,4)` | C040 | 4 | 10 |
 
-Combining pixels normally uses a read-modify-write and OR. OR is not implemented yet, so examples write complete byte patterns.
+Combining pixels uses a read-modify-write: `LD A,(HL)`, `OR mask`, then `LD (HL),A`. The bundled examples still write complete byte patterns to keep their display loop short. Clearing one selected bit would additionally need an inverted mask; the current expression syntax has no unary bitwise complement.
 
 In Display (`Ctrl+5`), move the pixel cursor with arrows and inspect coordinate, VRAM address, bit, value, and last writer. The palette changes 1x/2x/4x scale and grid. Selecting a VRAM Write in Bus links the Inspector to its byte; this does not restore historical memory.
 
@@ -96,4 +109,3 @@ In Display (`Ctrl+5`), move the pixel cursor with arrows and inspect coordinate,
 Calculate and then write it: address `C08A`, bit 1, mask `02`. Step the two LD instructions and verify Bus and Inspector values.
 
 [← Previous](05-stack.md) | [Contents](README.md) | [Next →](07-bus.md)
-

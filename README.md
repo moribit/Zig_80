@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-Zig_80 is a dependency-free CLI environment for learning about the Z80 by observing instructions, registers, flags, and memory. The current MVP targets Zig 0.16 and combines assembly, execution, disassembly, debugging, and 1bpp display output in a single binary.
+Zig_80 is a dependency-free integrated environment for writing, assembling, running, debugging, and verifying Z80 programs. It is useful for learning, but is designed as a general development tool for newcomers, experienced assembly programmers, retro-game authors, emulator developers, and headless CI workflows. The current MVP targets Zig 0.16 and combines assembly, execution, disassembly, debugging, tracing, and 1bpp display output in a single binary.
 
 For the project's principles, long-term direction, and possible path toward physical hardware, see [Vision and Architectural Direction](docs/vision.md). The future described there remains conceptual and is not a delivery commitment.
 
@@ -78,7 +78,15 @@ The display is 128×64 at 1bpp. Bit `y % 8` at `C000 + (y / 8) * 128 + x` repres
 
 The assembler supports labels, forward references, `;` comments, decimal (`42`), hexadecimal (`0x2A`), binary (`0b101010`), characters (`'A'`), the current address (`$`), and simple `+`/`-` expressions. Its directives are `org`, `db`, `dw`, and `equ`; strings can be emitted with syntax such as `db "HELLO", 0`. `org` changes the logical address and does not add padding to the output file.
 
-Supported instructions are NOP, HALT, JP, conditional JP (Z/NZ), JR, conditional JR (Z/NZ), CALL, RET, the MVP's 8-bit and 16-bit LD forms, INC/DEC, ADD A, SUB, CP, and PUSH/POP for AF/BC/DE/HL. Arithmetic updates S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
+Supported instructions are NOP, HALT, JP, conditional JP (Z/NZ), JR, conditional JR (Z/NZ), CALL, RET, immediate and memory LD forms, general LD between 8-bit registers and `(HL)`, INC/DEC, ADD A, SUB, CP, AND, XOR, OR, and PUSH/POP for AF/BC/DE/HL. Arithmetic and logic update S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
+
+## Documentation
+
+- [Tutorial](docs/tutorial/README.md): sequential introduction to Z80 programming with CLI and TUI paths
+- [Reference](docs/reference/README.md): implemented CLI, assembler, instructions, debugger, Machine, and key bindings
+- [Guides](docs/guides/README.md): game, Display, input, debugging, profiling, assets, and hardware tasks
+- [Architecture](docs/architecture/README.md): Core boundaries and possible hardware-target direction
+- [Roadmap](docs/roadmap.md): phased future work and dependencies
 
 ## Architecture
 

@@ -15,7 +15,11 @@
 - Register差分を読み取る
 - ZとCを使って演算結果を説明する
 
-## Registerの地図
+## Z80の仕組み
+
+レジスタはCPU内部に値を保持します。算術命令は結果の性質をFへ書き、後続の条件命令がそれを利用します。
+
+### レジスタの地図
 
 | Register | 最初の用途としての見方 |
 |---|---|
@@ -29,7 +33,22 @@
 
 CPU Cardは16 bit Pairを中心に表示します。例えば`BC=1400`ならBが`14`、Cが`00`です。
 
-## ADDをStepしてAFを読む
+## CLIで試す
+
+```console
+zig build run -- asm examples/add.asm -o zig-out/add.bin
+zig build run -- debug zig-out/add.bin
+```
+
+Debuggerで`step`と`registers`を使います。
+
+## TUIで観察する
+
+```console
+zig build run -- tui examples/add.asm
+```
+
+### ADDをStepしてAFを読む
 
 `examples/add.asm`をResetし、3回Stepします。
 
@@ -41,7 +60,7 @@ Step 3: ADD A,B    AF 0A00 → 1E00
 
 AF全体が表示されても、上位byte Aと下位byte Fに分けて考えます。3回目はAだけでなく演算に応じてFも更新されます。
 
-## Flagを観察するProgram
+### Flagを観察するProgram
 
 Sourceを次へ変更してAssembleします。
 
@@ -106,4 +125,3 @@ halt
 8 bitのAは`FF + 01`で`00`へWrapし、ZeroとCarryを観察できます。
 
 [← 前](01-cpu.ja.md) | [目次](README.ja.md) | [次: Memory →](03-memory.ja.md)
-

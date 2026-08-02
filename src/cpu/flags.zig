@@ -35,6 +35,21 @@ pub fn sub8(a: u8, b: u8) struct { value: u8, flags: u8 } {
     return .{ .value = value, .flags = f };
 }
 
+pub const LogicOperation = enum { @"and", xor, @"or" };
+
+pub fn logic8(operation: LogicOperation, a: u8, b: u8) struct { value: u8, flags: u8 } {
+    const value = switch (operation) {
+        .@"and" => a & b,
+        .xor => a ^ b,
+        .@"or" => a | b,
+    };
+    var f: u8 = if (operation == .@"and") H else 0;
+    if (value & 0x80 != 0) f |= S;
+    if (value == 0) f |= Z;
+    if (@popCount(value) & 1 == 0) f |= PV;
+    return .{ .value = value, .flags = f };
+}
+
 pub fn inc8(value: u8, old_f: u8) struct { value: u8, flags: u8 } {
     const result = value +% 1;
     var f: u8 = old_f & C;

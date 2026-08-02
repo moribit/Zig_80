@@ -15,7 +15,26 @@
 - Address、Data、Event Slot、Time Cursorを読む
 - 論理Event表示と実機Logic Analyzerの差を説明する
 
-## Busとは
+## Z80の仕組み
+
+実Z80はPinへAddressを出し、DataをTransferし、Control PinでMemory/I/OとRead/Writeを示します。電気Timingは連続的でClockと関係します。
+
+## CLIで試す
+
+CLIは生成byteと最終Counterを確認できますが、`trace` Commandはまだありません。
+
+```console
+zig build run -- asm examples/pixel.asm -o zig-out/pixel.bin
+zig build run -- disasm zig-out/pixel.bin
+```
+
+## TUIで観察する
+
+```console
+zig build run -- tui examples/pixel.asm
+```
+
+### Busとは
 
 BusはCPU、Memory、Peripheralの間で情報を運びます。
 
@@ -113,4 +132,3 @@ Zig_80のAnalyzerは「命令がどの論理Accessを起こしたか」を学ぶ
 Opcode/Operand/Writeがそれぞれ何件あるか数え、Memory Write Filterで結果を確認します。
 
 [← 前](06-display.ja.md) | [目次](README.ja.md) | [次: Project →](08-projects.ja.md)
-

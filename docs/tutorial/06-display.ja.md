@@ -16,7 +16,18 @@
 - Pixel座標からVRAM Address、Bit、Maskを計算する
 - Pixel Inspectorで計算結果とWriter命令を検証する
 
-## 最初のPixel Program
+## Z80の仕組み
+
+CPUはAddressへ1 byteを書くだけです。MachineのMemory MapがそのAddressをVRAMとし、Display Layoutが各BitをPixelとして解釈します。
+
+## CLIで試す
+
+```console
+zig build run -- asm examples/pixel.asm -o zig-out/pixel.bin
+zig build run -- run zig-out/pixel.bin --screen
+```
+
+## TUIで観察する
 
 ```console
 zig build run -- tui examples/pixel.asm
@@ -31,7 +42,7 @@ start:
     halt
 ```
 
-## Step 1: Addressを準備する
+### Step 1: Addressを準備する
 
 `Ctrl+T`で`LD HL,VRAM`を実行します。
 
@@ -48,7 +59,7 @@ Overlay         HL ← C000
 
 Immediateの`C000`はMachine CodeではLittle Endianの`00 C0`になります。
 
-## Step 2: VRAMへ書く
+### Step 2: VRAMへ書く
 
 もう一度`Ctrl+T`で`LD (HL),01`を実行します。
 
@@ -106,7 +117,7 @@ bit 0 ─ pixel (0,8)
 | `(0,8)` | `C080` | 0 | `01` |
 | `(64,4)` | `C040` | 4 | `10` |
 
-同じbyte内のPixelを複数残すには通常Read-Modify-WriteとORが必要です。現在のCPU/AssemblerはORを未実装なので、Exampleでは完成Patternの`0x18`や`0x38`を直接書きます。
+同じbyte内のPixelを複数残すには、`LD A,(HL)`、`OR mask`、`LD (HL),A`のRead-Modify-Writeを使えます。付属ExampleはDisplay Loopを短くするため完成Patternの`0x18`や`0x38`を直接書きます。特定BitだけをClearするには反転Maskも必要ですが、現在の式Syntaxに単項Bit反転はありません。
 
 ## Pixel Inspectorを使う
 
@@ -140,4 +151,3 @@ mask    = 02
 `LD HL,C08A`、`LD (HL),02`をStepし、Bus Address/DataとPixel Inspectorが計算に一致することを確認してください。
 
 [← 前](05-stack.ja.md) | [目次](README.ja.md) | [次: Logic Analyzer →](07-bus.ja.md)
-

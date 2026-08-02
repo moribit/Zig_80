@@ -1,4 +1,4 @@
-# 00 Introduction: use the IDE as a learning instrument
+# 00 Introduction: write and inspect a Z80 program
 
 [Contents](README.md) | [日本語](00-introduction.ja.md) | [Next: CPU and instructions →](01-cpu.md)
 
@@ -13,7 +13,13 @@
 
 Build Zig_80, find the next instruction on screen, and execute exactly one instruction rather than running the whole program.
 
-## Set up
+## How the Z80 works
+
+The CPU fetches bytes from memory, decodes them as instructions, changes registers or memory, and selects the next address with PC. This mechanism is independent of Zig_80.
+
+## Try it with the CLI
+
+### Set up
 
 Use macOS or Linux, Zig 0.16.x, and an ANSI/VT100-compatible terminal. An 80×24 terminal is recommended.
 
@@ -22,6 +28,14 @@ zig version
 zig build
 zig build test
 zig build run -- --help
+zig build run -- asm examples/halt.asm -o zig-out/halt.bin
+zig build run -- disasm zig-out/halt.bin
+zig build run -- run zig-out/halt.bin
+```
+
+## Observe it in the TUI
+
+```console
 zig build run -- tui examples/halt.asm
 ```
 
@@ -62,4 +76,3 @@ The CPU fetched byte `76` from address `0000`, decoded it as HALT, advanced PC b
 Insert `nop` before `halt`, press `Ctrl+R`, reset, and Step twice. Predict PC after each instruction. NOP changes no data, but still fetches an opcode and advances PC.
 
 [Contents](README.md) | [Next →](01-cpu.md)
-

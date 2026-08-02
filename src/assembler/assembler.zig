@@ -1,4 +1,5 @@
 const std = @import("std");
+const instruction = @import("../cpu/instruction.zig");
 
 pub const AssembleError = error{ InvalidSyntax, InvalidMnemonic, InvalidOperand, InvalidDirective, InvalidExpression, UnterminatedString, InvalidCharacterLiteral, DuplicateSymbol, UndefinedSymbol, ValueOutOfRange, RelativeOutOfRange, OutOfMemory };
 pub const FailureLocation = struct {
@@ -105,9 +106,7 @@ fn processLine(raw: []const u8, line_number: usize, allocator: std.mem.Allocator
 }
 
 fn isMnemonic(text: []const u8) bool {
-    const names = [_][]const u8{ "nop", "halt", "ret", "jp", "call", "jr", "push", "pop", "inc", "dec", "add", "sub", "cp", "ld" };
-    for (names) |name| if (std.ascii.eqlIgnoreCase(text, name)) return true;
-    return false;
+    return instruction.isAssemblerMnemonic(text);
 }
 
 fn locateFailure(err: AssembleError, raw: []const u8, line: usize) FailureLocation {
@@ -206,6 +205,10 @@ fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, operand
     if (std.ascii.eqlIgnoreCase(mnemonic, "add") and std.mem.startsWith(u8, ops, "A,")) return encodeAlu(allocator, output, ops[2..], symbols, pc, resolve, 0x80, 0xc6);
     if (std.ascii.eqlIgnoreCase(mnemonic, "sub")) return encodeAlu(allocator, output, ops, symbols, pc, resolve, 0x90, 0xd6);
     if (std.ascii.eqlIgnoreCase(mnemonic, "cp")) return encodeAlu(allocator, output, ops, symbols, pc, resolve, 0xb8, 0xfe);
+    if (instruction.logicByMnemonic(mnemonic)) |family| {
+        if (instruction.register8Code(ops)) |register_code| return emit1(allocator, output, family.register_base + register_code);
+        return emitImm8(allocator, output, family.immediate_opcode, try eval8(ops, symbols, pc, resolve));
+    }
     if (std.ascii.eqlIgnoreCase(mnemonic, "ld")) return encodeLd(allocator, output, ops, symbols, pc, resolve);
     return error.InvalidOperand;
 }
@@ -216,8 +219,14 @@ fn encodeAlu(a: std.mem.Allocator, out: ?*Result, op: []const u8, syms: *Symbols
 }
 
 fn encodeLd(a: std.mem.Allocator, out: ?*Result, ops: []const u8, syms: *Symbols, pc: u16, resolve: bool) AssembleError!u16 {
-    if (std.mem.eql(u8, ops, "A,(HL)")) return emit1(a, out, 0x7e);
-    if (std.mem.eql(u8, ops, "(HL),A")) return emit1(a, out, 0x77);
+    if (std.mem.indexOfScalar(u8, ops, ',')) |register_comma| {
+        const destination = instruction.register8Code(ops[0..register_comma]);
+        const source = instruction.register8Code(ops[register_comma + 1 ..]);
+        if (destination != null and source != null) {
+            const opcode = instruction.ldRegisterOpcode(destination.?, source.?) orelse return error.InvalidOperand;
+            return emit1(a, out, opcode);
+        }
+    }
     if (std.mem.startsWith(u8, ops, "(HL),")) return emitImm8(a, out, 0x36, try eval8(ops[5..], syms, pc, resolve));
     if (std.mem.startsWith(u8, ops, "A,(")) return emitImm16(a, out, 0x3a, try eval(try stripParens(ops[2..]), syms, pc, resolve));
     if (std.mem.startsWith(u8, ops, "HL,(")) return emitImm16(a, out, 0x2a, try eval(try stripParens(ops[3..]), syms, pc, resolve));

@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Zig_80 は、Z80 の命令、レジスタ、フラグ、メモリを観察しながら学べる、依存なしの CLI 開発環境です。Zig 0.16 系で動作する MVP で、アセンブラから実行・逆アセンブル・デバッグ・1bpp 描画までを一つのバイナリにまとめています。
+Zig_80は、Z80プログラムを書く、アセンブルする、実行する、デバッグする、検証するための依存なし統合環境です。学習にも利用できますが、初心者、Assembly経験者、Retro Game開発者、Emulator開発者、Headless CI利用者を対象とする通常の開発Toolとして設計します。Zig 0.16系のMVPで、Assembly、実行、逆Assembly、Debug、Trace、1bpp描画を一つのBinaryへまとめています。
 
 プロジェクトの思想、実機を含む将来像、長期的な設計方針については、[ビジョンとアーキテクチャの方向性](docs/vision.ja.md) を参照してください。記載されている将来像は構想段階であり、実装予定を確約するものではありません。
 
@@ -78,7 +78,15 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ラベル、前方参照、`;` コメント、10進 (`42`)、16進 (`0x2A`)、2進 (`0b101010`)、文字 (`'A'`)、現在アドレス (`$`)、単純な `+`/`-` 式に対応します。ディレクティブは `org`、`db`、`dw`、`equ` です。`db "HELLO", 0` も使用できます。複数セグメント形式ではなく、`org` は論理アドレスを変更し、出力ファイルへパディングしません。
 
-対応命令は NOP、HALT、JP、条件 JP (Z/NZ)、JR、条件 JR (Z/NZ)、CALL、RET、仕様書記載の8/16ビット LD、INC/DEC、ADD A、SUB、CP、AF/BC/DE/HL の PUSH/POP です。算術命令は S/Z/H/PV/N/C を更新し、INC/DEC は C を保存します。
+対応命令はNOP、HALT、JP、条件JP (Z/NZ)、JR、条件JR (Z/NZ)、CALL、RET、即値/Memory LD、8 bit Registerと`(HL)`間の一般LD、INC/DEC、ADD A、SUB、CP、AND、XOR、OR、AF/BC/DE/HLのPUSH/POPです。算術/論理命令はS/Z/H/PV/N/Cを更新し、INC/DECはCを保存します。
+
+## Documentation
+
+- [Tutorial](docs/tutorial/README.ja.md): CLI/TUIを使うZ80 Programmingの順序教材
+- [Reference](docs/reference/README.ja.md): 実装済みCLI、Assembler、命令、Debugger、Machine、Key
+- [Guides](docs/guides/README.ja.md): Game、Display、Input、Debug、Profile、Asset、Hardware
+- [Architecture](docs/architecture/README.ja.md): Core境界と将来Hardware Target
+- [Roadmap](docs/roadmap.md): 将来作業のPhaseと依存関係
 
 ## アーキテクチャ
 

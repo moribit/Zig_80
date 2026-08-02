@@ -1,4 +1,4 @@
-# 00 はじめに: IDEを学習装置として使う
+# 00 はじめに: Z80プログラムを書いて観察する
 
 [目次](README.ja.md) | [English](00-introduction.md) | [次: CPUと命令 →](01-cpu.ja.md)
 
@@ -15,7 +15,13 @@
 - 画面上で「次に実行される命令」を見つける
 - RunではなくStepを使って1命令だけ進める
 
-## 1. 準備
+## Z80の仕組み
+
+CPUはメモリ（Memory）からbyteを読み、命令（Instruction）としてDecodeし、レジスタ（Register）やメモリを変更し、プログラムカウンタ（Program Counter、PC）で次のアドレス（Address）を選びます。この仕組みはZig_80固有ではありません。
+
+## CLIで試す
+
+### 準備
 
 必要なものはmacOSまたはLinux、Git、Zig 0.16系、ANSI/VT100互換Terminalです。TUIには80×24以上を推奨します。外部TUI LibraryやC Libraryは不要です。
 
@@ -24,11 +30,14 @@ zig version
 zig build
 zig build test
 zig build run -- --help
+zig build run -- asm examples/halt.asm -o zig-out/halt.bin
+zig build run -- disasm zig-out/halt.bin
+zig build run -- run zig-out/halt.bin
 ```
 
 `zig build run --`の`--`より後ろは、Zig Build SystemではなくZig_80へ渡されます。Build後は`./zig-out/bin/zig80`を直接実行しても構いません。
 
-## 2. 最小Programを開く
+## TUIで観察する
 
 ```console
 zig build run -- tui examples/halt.asm
@@ -53,7 +62,7 @@ Source Markerは別々の意味を持ちます。
 
 編集CursorとCurrent PCが同じ行にあっても、同じものではありません。
 
-## 3. 最初のStep
+### 最初のStep
 
 `Ctrl+T`を1回だけ押します。
 
@@ -107,4 +116,3 @@ start:
 NOPは何もしませんが、Opcode FetchとPCの進行は発生します。
 
 [目次](README.ja.md) | [次: CPUと命令 →](01-cpu.ja.md)
-

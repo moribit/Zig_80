@@ -1,6 +1,6 @@
 # 08 小さなProject: 学んだ流れを組み合わせる
 
-[← 前: Logic Analyzer](07-bus.ja.md) | [目次](README.ja.md) | [English](08-projects.md) | [次: Reference →](09-reference.ja.md)
+[← 前: Logic Analyzer](07-bus.ja.md) | [目次](README.ja.md) | [English](08-projects.md) | [リファレンス](../reference/README.ja.md)
 
 ## この章で見る画面
 
@@ -43,40 +43,68 @@ main_loop:
 
 ## Exercise 1: Counter
 
-### Goal
+### Goal（目標）
 
 Aを5から0へ減らし、0でHALTします。
 
-### Checkpoint
+### PrerequisiteとStarter
+
+02章と04章を終え、[Starter File](starters/counter.asm)をCopyします。
+
+### Expected Behavior
+
+Aが5→4→3→2→1→0、0でZがSet、最後のJRは分岐せずHALTします。
+
+### Verification（検証）
+
+```console
+zig build run -- asm counter.asm -o zig-out/counter.bin
+zig build run -- disasm zig-out/counter.bin
+zig build run -- test zig-out/counter.bin
+```
+
+TUIではDECへBreakpointを置き、各VisitのAを記録します。
+
+### Hint、Solution、Extension
 
 - DEC後のAとZ
 - JRを取る時/取らない時のPC
 - Breakpointで各Iterationを停止
 
-### Extension
-
-初期値をRAM `8000`から読む版へ変更します。
+Hintは`DEC A`と`JR NZ,loop`です。[Solution](solutions/counter.asm)と比較します。初期値をRAM `8000`から読む版、またはBをCounterにする版へ拡張します。
 
 ## Exercise 2: Pixel Painter
 
-### Goal
+### Goal（目標）
 
 計算した3つのVRAM Addressへbyte Patternを書き、3箇所を表示します。
 
-### Checkpoint
+### PrerequisiteとStarter
+
+03、06、07章を終え、[Starter File](starters/pixel.asm)をCopyします。
+
+### Expected BehaviorとVerification
+
+最初のWriteはAddress `C08A`、bit 1、Data `02`です。Assembleして`run --screen`、次にTUIでStepし、以下を検証します。
 
 - HL before/after
 - Memory Write Address/Data
 - Changed PixelとInspector
 - Source Execution Overlay
 
-### Extension
+### Hint、Solution、Extension
 
-Subroutine`draw_byte`を作り、HLとAを使って`LD (HL),A`を実行します。CALL前にSPを初期化します。
+式`C000 + (y/8)*128+x`を使い、[Solution](solutions/pixel.asm)と比較します。3 Pixelへ増やし、Subroutine`draw_byte`を作って`LD (HL),A`を実行します。CALL前にSPを初期化します。
 
 ## Exercise 3: Pongへつなぐ
 
-まず[`examples/pinpon.asm`](../../examples/pinpon.asm)を開きます。
+### GoalとPrerequisite
+
+04〜07章の後に、継続移動するBallを理解して変更します。
+
+### StarterとSolution
+
+[`examples/pinpon.asm`](../../examples/pinpon.asm)は動作するStarterであり、現在の自律版Solutionでもあります。
 
 ```console
 zig build run -- tui examples/pinpon.asm
@@ -84,7 +112,11 @@ zig build run -- tui examples/pinpon.asm
 
 `Ctrl+E`でRun、`Ctrl+5`でDisplay、EscapeでPauseします。固定PaddleとBallは意図的に無限Loopします。
 
-### 読む順序
+### Expected BehaviorとVerification
+
+BallがHALTせず固定Paddle間を往復します。EscapeでPauseし、Direction RAMとVRAM Writeを確認します。
+
+### Hintと読む順序
 
 1. StartでPaddleとBallを描く
 2. HLがBall Address、Bが端までのCounter
@@ -92,7 +124,7 @@ zig build run -- tui examples/pinpon.asm
 4. RAM `8000`のDirection
 5. `CP 0`と`JR Z,move_left`
 
-### Challenges
+### Extension
 
 - Ball Pattern`0x18`を`0x3C`へ変える
 - Delay初期値またはLoop構造を変える
@@ -103,15 +135,23 @@ zig build run -- tui examples/pinpon.asm
 
 ## Exercise 4: Game of Lifeへつなぐ
 
-[`examples/game_of_life.asm`](../../examples/game_of_life.asm)はBlinkerの2 Generationを交互に描きます。
+### GoalとPrerequisite
+
+Display/Branch章の後に、Blinkerの2 Stateを1 Cycle追跡します。
+
+### StarterとSolution
+
+[`examples/game_of_life.asm`](../../examples/game_of_life.asm)は動作するPattern Animation Solutionで、一般Game of Life Engineではありません。
 
 ```console
 zig build run -- tui examples/game_of_life.asm
 ```
 
-一般的なNeighbor Count Engineではなく、現在の命令Subsetで学べるよう縦`0x38`と横3 byteの`0x10`を事前計算しています。
+### Expected BehaviorとVerification
 
-### Challenges
+縦/横を無限に交互表示します。Pauseし、1 GenerationをStepしてBusの全WriteとDisplay Pixelを検証します。Neighbor Countではなく縦`0x38`と横3 byteの`0x10`を事前計算しています。
+
+### HintとExtension
 
 - Center Addressを変更する
 - Vertical Patternを別の3 bitへ移動する
@@ -128,6 +168,10 @@ Delay Loopは特定MHzの実Clockを再現しません。Host性能、UI Tick、
 - `Ctrl+S`: 小さなCheckpointごとに保存してAssemble。
 - `disasm`: 各CheckpointでSourceと生成Bytesを照合。
 
+## Challenge: 1つを検証まで完了する
+
+CounterまたはPixel Painterを選び、Solutionを先にCopyせずGoalからVerificationまで進めます。1命令についてSource、PC、Opcode byte、Register差分、Bus Event、画面またはMemory結果を記録してください。
+
 ## 利用フェーズでのFeedback
 
 ```text
@@ -140,4 +184,4 @@ Artifact:    最小.asmと必要ならScreenshot
 Learning UX: どのPane間の関係が読めなかったか
 ```
 
-[← 前](07-bus.ja.md) | [目次](README.ja.md) | [次: Reference →](09-reference.ja.md)
+[← 前](07-bus.ja.md) | [目次](README.ja.md) | [リファレンス](../reference/README.ja.md)
