@@ -217,7 +217,7 @@ pub const AppState = struct {
         self.assembly = result;
         self.loadAssembly();
         self.execution_state = .assembled;
-        self.setStatus("Assembled {d} bytes, {d} symbols", .{ result.bytes.items.len, result.symbols.items.len });
+        self.setStatus("Assembled {d} bytes, {d} symbols", .{ result.bytes.items.len, result.symbols.items.items.len });
         self.showToast(.success, "Assembled {d} bytes", .{result.bytes.items.len});
     }
 
@@ -350,7 +350,7 @@ pub const AppState = struct {
 
     pub fn sourceLineForPC(self: *const AppState, pc: u16) ?usize {
         const result = if (self.assembly) |*value| value else return null;
-        for (result.lines.items) |line| if (line.address == pc) return line.line;
+        for (result.source_map.items.items) |line| if (line.address == pc) return line.line;
         return null;
     }
 
@@ -360,7 +360,7 @@ pub const AppState = struct {
             self.setStatus("Assemble before setting a source breakpoint", .{});
             return;
         };
-        for (result.lines.items) |line| if (line.line == line_number) {
+        for (result.source_map.items.items) |line| if (line.line == line_number) {
             if (self.debug_session.breakpoints.remove(line.address)) {
                 self.setStatus("Removed breakpoint at 0x{X:0>4}", .{line.address});
                 self.showToast(.info, "Breakpoint removed", .{});
@@ -894,7 +894,7 @@ pub const AppState = struct {
         };
         if (!on_mnemonic) return null;
         const assembly = if (self.assembly) |*value| value else return null;
-        for (assembly.lines.items) |info| if (info.line == position.line + 1) return info.address;
+        for (assembly.source_map.items.items) |info| if (info.line == position.line + 1) return info.address;
         return null;
     }
 

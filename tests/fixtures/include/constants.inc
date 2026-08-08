@@ -1,0 +1,1 @@
+VRAM equ 0xC000

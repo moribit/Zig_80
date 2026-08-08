@@ -23,6 +23,10 @@ pub fn message(err: anyerror) []const u8 {
         error.InvalidExpression => "invalid expression",
         error.UnterminatedString => "unterminated string",
         error.InvalidCharacterLiteral => "invalid character literal",
+        error.InvalidInclude => "invalid include directive",
+        error.IncludeNotFound => "included file was not found",
+        error.IncludeCycle => "include cycle detected",
+        error.IncludeDepthExceeded => "include nesting is too deep",
         else => "invalid assembly syntax",
     };
 }
@@ -68,13 +72,15 @@ pub fn fromError(err: anyerror, file_path: ?[]const u8) Diagnostic {
             error.RelativeOutOfRange => "use JP for a target outside -128...+127",
             error.DuplicateSymbol => "rename or remove one definition",
             error.UndefinedSymbol => "define the symbol before encoding completes",
+            error.IncludeNotFound => "check the path relative to the file containing include/incbin",
+            error.IncludeCycle => "remove one include edge from the cycle",
             else => null,
         },
     };
 }
 
 pub fn fromFailure(failure: anytype, file_path: ?[]const u8) Diagnostic {
-    var diagnostic = fromError(failure.err, file_path);
+    var diagnostic = fromError(failure.err, failure.file_path orelse file_path);
     diagnostic.line = failure.line;
     diagnostic.column = failure.column;
     diagnostic.end_column = failure.end_column;

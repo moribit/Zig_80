@@ -14,7 +14,7 @@ const usage =
     \\Zig_80 - integrated Z80 development environment
     \\
     \\Usage:
-    \\  zig80 asm <source.asm> -o <output.bin>
+    \\  zig80 asm <source.asm> -o <output.bin> [--symbols FILE] [--source-map FILE] [--listing FILE]
     \\  zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--input-script FILE] [--screen]
     \\  zig80 debug <program.bin>
     \\  zig80 disasm <program.bin>
@@ -83,15 +83,26 @@ fn readFile(io: Io, allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 fn asmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, out: *Io.Writer, errout: *Io.Writer) !void {
-    if (args.len < 3 or !std.mem.eql(u8, args[1], "-o")) {
-        try errout.writeAll("usage: zig80 asm <source.asm> -o <output.bin>\n");
+    if (args.len < 3) {
+        try errout.writeAll("usage: zig80 asm <source.asm> -o <output.bin> [--symbols FILE] [--source-map FILE] [--listing FILE]\n");
         return error.InvalidArguments;
     }
-    const source = try Io.Dir.cwd().readFileAlloc(io, args[0], allocator, .limited(1024 * 1024));
+    var output_path: ?[]const u8 = null;
+    var symbols_path: ?[]const u8 = null;
+    var source_map_path: ?[]const u8 = null;
+    var listing_path: ?[]const u8 = null;
+    var index: usize = 1;
+    while (index < args.len) : (index += 1) {
+        const option = args[index];
+        if (index + 1 >= args.len) return error.InvalidArguments;
+        index += 1;
+        if (std.mem.eql(u8, option, "-o")) output_path = args[index] else if (std.mem.eql(u8, option, "--symbols")) symbols_path = args[index] else if (std.mem.eql(u8, option, "--source-map")) source_map_path = args[index] else if (std.mem.eql(u8, option, "--listing")) listing_path = args[index] else return error.InvalidArguments;
+    }
+    const binary_path = output_path orelse return error.InvalidArguments;
     var failure: assembler.FailureLocation = .{};
-    var assembled = assembler.assembleLocated(allocator, source, &failure) catch |e| {
+    var assembled = assembler.assembleFile(io, allocator, args[0], &failure) catch |e| {
         const diagnostic = diagnostics.fromFailure(failure, args[0]);
-        try errout.print("{s}:{d}:{d}: error: {s}\n", .{ args[0], diagnostic.line orelse 0, diagnostic.column orelse 0, diagnostic.message });
+        try errout.print("{s}:{d}:{d}: error: {s}\n", .{ diagnostic.file_path orelse args[0], diagnostic.line orelse 0, diagnostic.column orelse 0, diagnostic.message });
         if (diagnostic.source_line) |line| {
             try errout.print("    {s}\n    ", .{line});
             for (1..diagnostic.column orelse 1) |_| try errout.writeByte(' ');
@@ -101,13 +112,37 @@ fn asmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         return e;
     };
     defer assembled.deinit();
-    const file = try Io.Dir.cwd().createFile(io, args[2], .{});
+    const file = try Io.Dir.cwd().createFile(io, binary_path, .{});
     defer file.close(io);
     try file.writeStreamingAll(io, assembled.bytes.items);
-    try out.print("assembled {d} bytes -> {s}\n", .{ assembled.bytes.items.len, args[2] });
-    if (assembled.symbols.items.len > 0) {
+    try out.print("assembled {d} bytes -> {s}\n", .{ assembled.bytes.items.len, binary_path });
+    if (assembled.symbols.items.items.len > 0) {
         try out.writeAll("symbols:\n");
-        for (assembled.symbols.items) |s| try out.print("  {s} = 0x{X:0>4}\n", .{ s.name, s.value });
+        for (assembled.symbols.items.items) |s| try out.print("  {s} = 0x{X:0>4}\n", .{ s.name, s.value });
+    }
+    if (symbols_path) |path| {
+        const symbol_file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer symbol_file.close(io);
+        var buffer: [4096]u8 = undefined;
+        var writer = symbol_file.writer(io, &buffer);
+        try assembled.symbols.write(&writer.interface);
+        try writer.interface.flush();
+    }
+    if (source_map_path) |path| {
+        const map_file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer map_file.close(io);
+        var buffer: [4096]u8 = undefined;
+        var writer = map_file.writer(io, &buffer);
+        try assembled.source_map.write(&writer.interface);
+        try writer.interface.flush();
+    }
+    if (listing_path) |path| {
+        const listing_file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer listing_file.close(io);
+        var buffer: [4096]u8 = undefined;
+        var writer = listing_file.writer(io, &buffer);
+        try assembler.writeListing(&assembled, &writer.interface);
+        try writer.interface.flush();
     }
 }
 

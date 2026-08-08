@@ -542,6 +542,37 @@ test "TUI game input mode isolates editor and records explicit releases" {
     try std.testing.expect(state.applyGameKey(.{ .code = .escape }));
     try std.testing.expect(!state.game_input_mode);
 }
+
+test "file assembler resolves include incbin provenance diagnostics and cycles" {
+    var failure: assembler.FailureLocation = .{};
+    var assembled = try assembler.assembleFile(std.testing.io, std.testing.allocator, "tests/fixtures/include/root.asm", &failure);
+    defer assembled.deinit();
+    const expected = [_]u8{ 0x21, 0x00, 0xc0, 0x36, 0x18, 'A', 'B', '\n', 0x76 };
+    try std.testing.expectEqualSlices(u8, &expected, assembled.bytes.items);
+    try std.testing.expectEqual(@as(?u16, 0xc000), assembled.symbols.address("vram"));
+    try std.testing.expectEqualStrings("draw", assembled.symbols.label(3).?);
+    const included = assembled.source_map.sourceForAddress(3).?;
+    try std.testing.expect(std.mem.endsWith(u8, included.file_path.?, "draw.inc"));
+    try std.testing.expectEqual(@as(usize, 2), included.line);
+    try std.testing.expectEqual(@as(?u16, 3), assembled.source_map.addressForSource(included.file_path, 2));
+
+    var listing: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer listing.deinit();
+    try assembler.writeListing(&assembled, &listing.writer);
+    try std.testing.expect(std.mem.indexOf(u8, listing.writer.buffered(), "21 00 C0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, listing.writer.buffered(), "ld hl,VRAM") != null);
+
+    failure = .{};
+    try std.testing.expectError(error.IncludeCycle, assembler.assembleFile(std.testing.io, std.testing.allocator, "tests/fixtures/include/cycle-a.asm", &failure));
+    try std.testing.expect(std.mem.endsWith(u8, failure.file_path.?, "cycle-b.asm"));
+    failure = .{};
+    try std.testing.expectError(error.IncludeNotFound, assembler.assembleFile(std.testing.io, std.testing.allocator, "tests/fixtures/include/missing.asm", &failure));
+    try std.testing.expectEqual(@as(usize, 1), failure.line);
+    failure = .{};
+    try std.testing.expectError(error.UndefinedSymbol, assembler.assembleFile(std.testing.io, std.testing.allocator, "tests/fixtures/include/error.asm", &failure));
+    try std.testing.expect(std.mem.endsWith(u8, failure.file_path.?, "error.inc"));
+    try std.testing.expectEqual(@as(usize, 1), failure.line);
+}
 test "absolute load advances PC past the 16-bit address" {
     var bus = Bus{};
     bus.memory[0..4].* = .{ 0x3a, 0x00, 0xc4, 0x76 };

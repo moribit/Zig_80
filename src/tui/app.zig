@@ -176,7 +176,7 @@ fn renderGutterSeparators(state: *const AppState, frame: *Frame, rect: Rect, y: 
 
 fn lineInfo(state: *const AppState, source_line: usize) ?@import("../assembler/assembler.zig").LineInfo {
     const assembly = if (state.assembly) |*value| value else return null;
-    for (assembly.lines.items) |line| if (line.line == source_line) return line;
+    for (assembly.source_map.items.items) |line| if (line.line == source_line) return line;
     return null;
 }
 
