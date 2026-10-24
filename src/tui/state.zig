@@ -98,6 +98,7 @@ pub const InstructionSnapshot = struct {
 };
 
 pub const AppState = struct {
+    assembly_io: ?Io = null,
     allocator: std.mem.Allocator,
     source_path: ?[]u8 = null,
     source: SourceBuffer,
@@ -202,7 +203,10 @@ pub const AppState = struct {
         if (self.assembly) |*old| old.deinit();
         self.assembly = null;
         var failure: assembler.FailureLocation = .{};
-        const result = assembler.assembleLocated(self.allocator, self.source.text(), &failure) catch |err| {
+        const result = (if (self.assembly_io != null and self.source_path != null)
+            assembler.assembleSourceFile(self.assembly_io.?, self.allocator, self.source_path.?, self.source.text(), &failure)
+        else
+            assembler.assembleLocated(self.allocator, self.source.text(), &failure)) catch |err| {
             if (diagnostics.OwnedDiagnostic.init(self.allocator, diagnostics.fromFailure(failure, self.source_path))) |owned| {
                 self.diagnostics_list.append(self.allocator, owned) catch {
                     var temporary = owned;

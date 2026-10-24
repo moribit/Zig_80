@@ -6,7 +6,16 @@ const Result = assembler.Result;
 const Symbols = assembler.Symbols;
 
 pub fn assembleFile(io: std.Io, allocator: std.mem.Allocator, path: []const u8, failure: *FailureLocation) AssembleError!Result {
-    var context = FileAssembler{ .io = io, .allocator = allocator, .failure = failure };
+    return assembleRoot(io, allocator, path, null, failure);
+}
+
+pub fn assembleSourceFile(io: std.Io, allocator: std.mem.Allocator, path: []const u8, source: []const u8, failure: *FailureLocation) AssembleError!Result {
+    return assembleRoot(io, allocator, path, source, failure);
+}
+
+fn assembleRoot(io: std.Io, allocator: std.mem.Allocator, path: []const u8, source: ?[]const u8, failure: *FailureLocation) AssembleError!Result {
+    failure.* = .{};
+    var context = FileAssembler{ .io = io, .allocator = allocator, .failure = failure, .root_source = source };
     defer context.deinit();
     var symbols = Symbols.init(allocator);
     defer symbols.deinit();
@@ -28,10 +37,28 @@ const FileAssembler = struct {
     stack: [64][]const u8 = undefined,
     stack_len: usize = 0,
     owned_symbol_names: std.ArrayList([]u8) = .empty,
+    root_source: ?[]const u8 = null,
+    files: std.StringHashMapUnmanaged([]u8) = .empty,
 
     fn deinit(self: *FileAssembler) void {
         for (self.owned_symbol_names.items) |name| self.allocator.free(name);
         self.owned_symbol_names.deinit(self.allocator);
+        var iterator = self.files.iterator();
+        while (iterator.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.files.deinit(self.allocator);
+    }
+
+    fn readCached(self: *FileAssembler, path: []const u8) AssembleError![]const u8 {
+        if (self.files.get(path)) |data| return data;
+        const data = std.Io.Dir.cwd().readFileAlloc(self.io, path, self.allocator, .limited(16 * 1024 * 1024)) catch |err| return if (err == error.OutOfMemory) error.OutOfMemory else error.IncludeNotFound;
+        errdefer self.allocator.free(data);
+        const key = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(key);
+        try self.files.put(self.allocator, key, data);
+        return data;
     }
 
     fn passFile(self: *FileAssembler, path: []const u8, symbols: *assembler.Symbols, output: ?*Result, pass_number: u8, pc: *u16) AssembleError!void {
@@ -46,8 +73,7 @@ const FileAssembler = struct {
             self.stack_len -= 1;
             self.allocator.free(active_path);
         }
-        const source = std.Io.Dir.cwd().readFileAlloc(self.io, resolved, self.allocator, .limited(16 * 1024 * 1024)) catch |err| return if (err == error.OutOfMemory) error.OutOfMemory else error.IncludeNotFound;
-        defer self.allocator.free(source);
+        const source = if (self.stack_len == 1 and self.root_source != null) self.root_source.? else try self.readCached(resolved);
         var lines = std.mem.splitScalar(u8, source, '\n');
         var line_number: usize = 0;
         while (lines.next()) |raw| {
@@ -72,12 +98,10 @@ const FileAssembler = struct {
                 };
                 const child = std.fs.path.join(self.allocator, &.{ std.fs.path.dirname(resolved) orelse ".", binary_path }) catch return error.OutOfMemory;
                 defer self.allocator.free(child);
-                const data = std.Io.Dir.cwd().readFileAlloc(self.io, child, self.allocator, .limited(16 * 1024 * 1024)) catch |err| {
-                    const mapped: AssembleError = if (err == error.OutOfMemory) error.OutOfMemory else error.IncludeNotFound;
-                    self.failure.set(mapped, raw, line_number, resolved);
-                    return mapped;
+                const data = self.readCached(child) catch |err| {
+                    self.failure.set(err, raw, line_number, resolved);
+                    return err;
                 };
-                defer self.allocator.free(data);
                 if (data.len > 0xffff) {
                     self.failure.set(error.ValueOutOfRange, raw, line_number, resolved);
                     return error.ValueOutOfRange;

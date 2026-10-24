@@ -61,6 +61,7 @@ fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
     const path: ?[]const u8 = if (args.len == 1) args[0] else null;
     const source = if (path) |value| try Io.Dir.cwd().readFileAlloc(io, value, allocator, .limited(1024 * 1024)) else "";
     var state = try TuiState.init(allocator, path, source);
+    state.assembly_io = io;
     defer state.deinit();
     state.attachTrace();
     const locale = environ.get("LC_ALL") orelse environ.get("LC_CTYPE") orelse environ.get("LANG") orelse "";

@@ -1,4 +1,18 @@
 const std = @import("std");
+
+test "TUI assembles unsaved root buffer with the same includes as CLI" {
+    var state = try AppState.init(std.testing.allocator, "tests/fixtures/include/root.asm", "include \"draw.inc\"\nld a,0x42\nhalt\n");
+    defer state.deinit();
+    state.assembly_io = std.testing.io;
+    state.assemble();
+    try std.testing.expect(state.assembly != null);
+    var failure: assembler.FailureLocation = .{};
+    var expected = try assembler.assembleSourceFile(std.testing.io, std.testing.allocator, "tests/fixtures/include/root.asm", state.source.text(), &failure);
+    defer expected.deinit();
+    try std.testing.expectEqualSlices(u8, expected.bytes.items, state.assembly.?.bytes.items);
+    const bytes = state.assembly.?.bytes.items;
+    try std.testing.expectEqualSlices(u8, &.{ 0x3e, 0x42, 0x76 }, bytes[bytes.len - 3 ..]);
+}
 const Cpu = @import("../cpu/cpu.zig").Cpu;
 const Bus = @import("../machine/bus.zig").Bus;
 const Machine = @import("../machine/machine.zig").Machine;

@@ -65,6 +65,7 @@ pub fn assembleLocated(allocator: std.mem.Allocator, source: []const u8, failure
 }
 
 pub const assembleFile = @import("file_loader.zig").assembleFile;
+pub const assembleSourceFile = @import("file_loader.zig").assembleSourceFile;
 
 pub fn writeListing(result: *const Result, writer: *std.Io.Writer) !void {
     for (result.source_map.items.items) |entry| {
