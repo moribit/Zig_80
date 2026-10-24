@@ -16,6 +16,7 @@ pub fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, ope
         n += 1;
     };
     const ops = normalized_buf[0..n];
+    if (try encodeExtended(allocator, output, mnemonic, ops, symbols, pc, resolve)) |size| return size;
     if (std.ascii.eqlIgnoreCase(mnemonic, "nop")) return if (ops.len == 0) emit1(allocator, output, 0x00) else error.InvalidOperand;
     if (std.ascii.eqlIgnoreCase(mnemonic, "halt")) return if (ops.len == 0) emit1(allocator, output, 0x76) else error.InvalidOperand;
     if (std.ascii.eqlIgnoreCase(mnemonic, "ret")) return if (ops.len == 0) emit1(allocator, output, 0xc9) else error.InvalidOperand;
@@ -39,7 +40,7 @@ pub fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, ope
         const target = try eval(expression, symbols, pc, resolve);
         var offset: i32 = 0;
         if (resolve) {
-            offset = @as(i32, target) - (@as(i32, pc) + 2);
+            offset = @as(i16, @bitCast(target -% (pc +% 2)));
             if (offset < -128 or offset > 127) return error.RelativeOutOfRange;
         }
         return emitImm8(allocator, output, opcode, @bitCast(@as(i8, @intCast(offset))));
@@ -48,7 +49,7 @@ pub fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, ope
         const target = try eval(ops, symbols, pc, resolve);
         var offset: i32 = 0;
         if (resolve) {
-            offset = @as(i32, target) - (@as(i32, pc) + 2);
+            offset = @as(i16, @bitCast(target -% (pc +% 2)));
             if (offset < -128 or offset > 127) return error.RelativeOutOfRange;
         }
         return emitImm8(allocator, output, 0x10, @bitCast(@as(i8, @intCast(offset))));
@@ -79,6 +80,56 @@ pub fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, ope
     if (std.ascii.eqlIgnoreCase(mnemonic, "ld")) return encodeLd(allocator, output, ops, symbols, pc, resolve);
     if (cbOperation(mnemonic)) |operation| return encodeCb(allocator, output, operation, ops, symbols, pc, resolve);
     return error.InvalidOperand;
+}
+
+fn encodeExtended(a: std.mem.Allocator, out: ?*Result, mnemonic: []const u8, ops: []const u8, syms: *Symbols, pc: u16, resolve: bool) AssembleError!?u16 {
+    const metadata = @import("../cpu/extended_metadata.zig");
+    var buffer: [300]u8 = undefined;
+    const text = std.fmt.bufPrint(&buffer, "{s}{s}{s}", .{ mnemonic, if (ops.len == 0) "" else " ", ops }) catch return error.InvalidOperand;
+    for (text) |*ch| ch.* = std.ascii.toUpper(ch.*);
+    for (0..3) |pass_number| for (metadata.definitions) |definition| {
+        if (definition.legacy) continue;
+        if (std.mem.count(u8, definition.pattern, "{") != pass_number) continue;
+        const matched = metadata.match(definition.pattern, text) orelse continue;
+        var encoded: [4]u8 = undefined;
+        var len: usize = 0;
+        if (definition.prefix != 0) {
+            encoded[len] = definition.prefix;
+            len += 1;
+        }
+        encoded[len] = if (definition.indexed_cb) 0xcb else definition.opcode;
+        len += 1;
+        for (matched.values[0..matched.len], matched.kinds[0..matched.len]) |value, kind| {
+            const v = if (kind == 'd') 0 else try eval(value, syms, pc, resolve);
+            if (kind == 'w') {
+                encoded[len] = @truncate(v);
+                encoded[len + 1] = @truncate(v >> 8);
+                len += 2;
+            } else if (kind == 'r') {
+                const offset: i16 = @bitCast(v -% (pc +% definition.size()));
+                if (resolve and (offset < -128 or offset > 127)) return error.RelativeOutOfRange;
+                encoded[len] = if (resolve) @bitCast(@as(i8, @intCast(offset))) else 0;
+                len += 1;
+            } else if (kind == 'd') {
+                if (value[0] != '+' and value[0] != '-') return error.InvalidOperand;
+                const magnitude = try eval(value[1..], syms, pc, resolve);
+                if (resolve and magnitude > (if (value[0] == '-') @as(u16, 128) else @as(u16, 127))) return error.ValueOutOfRange;
+                encoded[len] = if (value[0] == '-') 0 -% @as(u8, @truncate(magnitude)) else @truncate(magnitude);
+                len += 1;
+            } else {
+                if (v > 255) return error.ValueOutOfRange;
+                encoded[len] = @truncate(v);
+                len += 1;
+            }
+        }
+        if (definition.indexed_cb) {
+            encoded[len] = definition.opcode;
+            len += 1;
+        }
+        if (out) |result| try result.bytes.appendSlice(a, encoded[0..len]);
+        return @intCast(len);
+    };
+    return null;
 }
 
 fn encodeAlu(a: std.mem.Allocator, out: ?*Result, op: []const u8, syms: *Symbols, pc: u16, resolve: bool, base: u8, immediate: u8) AssembleError!u16 {

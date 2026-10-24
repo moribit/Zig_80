@@ -89,7 +89,7 @@ The display is 128×64 at 1bpp. Bit `y % 8` at `C000 + (y / 8) * 128 + x` repres
 
 The assembler supports labels, forward references, `;` comments, decimal (`42`), hexadecimal (`0x2A`), binary (`0b101010`), characters (`'A'`), the current address (`$`), and simple `+`/`-` expressions. Its directives are `org`, `db`, `dw`, and `equ`; strings can be emitted with syntax such as `db "HELLO", 0`. `org` changes the logical address and does not add padding to the output file.
 
-Supported instructions are NOP, HALT, JP/JR Z/NZ, DJNZ, CALL, RET, immediate and memory LD forms, general LD between 8-bit registers and `(HL)`, INC/DEC including `(HL)`, ADD A, ADC A, SUB, SBC A, CP, ADD HL, AND, XOR, OR, BIT/SET/RES, RLC/RRC/RL/RR/SLA/SRA/SRL, and PUSH/POP for AF/BC/DE/HL. Arithmetic and logic update S/Z/H/PV/N/C as applicable, while INC/DEC preserve C.
+The documented base, CB, ED, IX/IY (DD/FD) and indexed CB forms have 696 canonical encodings in the [generated coverage table](docs/development/cpu-coverage.md). This includes conditional flow, exchange, BCD adjustment, block transfer/search/I/O and interrupts. See [CPU contracts](docs/architecture/cpu.md) for verification scope and remaining incompatibilities.
 
 ## Documentation
 
@@ -112,6 +112,6 @@ New instructions currently require corresponding additions to the CPU opcode fam
 
 ## Current limitations and roadmap
 
-The MVP does not support the complete Z80 instruction set, DD/ED/FD prefixes, IX/IY, interrupts, I/O instructions, cycle-accurate behavior, time travel, UART/PSG/SD devices, Wasm, GDB, or LSP. The documented CB bit/rotate/shift subset is supported; undocumented SLL is not. Conditional breakpoints and logical read/write watchpoints are available, as are instruction-indexed input replay and terminal Game Input mode; ordinary terminals still cannot report native key-up events. The ROM range is not currently write-protected. Bus Trace represents logical instruction-level accesses and is not a reproduction of electrical or per-T-state Z80 timing. The CLI `test` command only checks HALT; detailed register and memory assertions can be written through the Zig unit-test API around `Machine`.
+Undocumented instructions/flags, ignored/repeated prefixes, electrical cycle accuracy, time travel, physical peripherals, Wasm, GDB and LSP remain outside the current contract. IM0 accepts injected RST vectors only. Classic ROM remains writable. Logical Bus Trace does not reproduce pin timing. Terminal input still has no native key-up events. CLI `test` checks HALT; use the Zig tests for state assertions.
 
-Likely next areas include file-aware assembly, serializable symbols/source maps, project support, and port I/O.
+CLI and TUI support include/incbin with source provenance; TUI uses the unsaved root buffer. See [baseline](docs/development/baseline.md), [quality contracts](docs/development/quality-improvements.md) and [testing strategy](docs/development/testing-strategy.md).

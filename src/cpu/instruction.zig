@@ -9,6 +9,7 @@ pub const assembler_mnemonics = [_][]const u8{
 };
 
 pub fn isAssemblerMnemonic(name: []const u8) bool {
+    if (@import("extended_metadata.zig").isMnemonic(name)) return true;
     for (assembler_mnemonics) |candidate| {
         if (@import("std").ascii.eqlIgnoreCase(name, candidate)) return true;
     }

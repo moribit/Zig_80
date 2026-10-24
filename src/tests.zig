@@ -8,5 +8,6 @@ test {
     _ = @import("trace/tests.zig");
     _ = @import("tui/tests.zig");
     _ = @import("cpu/quality_tests.zig");
+    _ = @import("cpu/extension_tests.zig");
     _ = @import("machine/quality_tests.zig");
 }

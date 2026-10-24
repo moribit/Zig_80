@@ -89,7 +89,7 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ラベル、前方参照、`;` コメント、10進 (`42`)、16進 (`0x2A`)、2進 (`0b101010`)、文字 (`'A'`)、現在アドレス (`$`)、単純な `+`/`-` 式に対応します。ディレクティブは `org`、`db`、`dw`、`equ` です。`db "HELLO", 0` も使用できます。複数セグメント形式ではなく、`org` は論理アドレスを変更し、出力ファイルへパディングしません。
 
-対応命令はNOP、HALT、JP/JR Z/NZ、DJNZ、CALL、RET、即値/Memory LD、8 bit Registerと`(HL)`間の一般LD、`(HL)`を含むINC/DEC、ADD A、ADC A、SUB、SBC A、CP、ADD HL、AND、XOR、OR、BIT/SET/RES、RLC/RRC/RL/RR/SLA/SRA/SRL、AF/BC/DE/HLのPUSH/POPです。算術/論理命令はS/Z/H/PV/N/Cを更新し、INC/DECはCを保存します。
+文書化された基本命令、CB、ED、IX/IY（DD/FD）、Indexed CBの696エンコードを[生成カバレッジ表](docs/development/cpu-coverage.md)で確認できます。条件分岐、交換、BCD補正、Block転送・検索・I/O、割り込みを含みます。[CPU契約](docs/architecture/cpu.md)に検証範囲と残る非互換性を記載しています。
 
 ## Documentation
 
@@ -112,6 +112,6 @@ TUIのRunとContinueは、既定で総命令数10,000,000または総T-state 100
 
 ## 現在の制限とロードマップ
 
-MVP は Z80 全命令、DD/ED/FD prefix、IX/IY、割り込み、I/O命令、cycle-accurate 動作、タイムトラベル、UART/PSG/SD、Wasm、GDB/LSP に未対応です。Document化されたCB Bit/Rotate/Shift Subsetには対応しますが、非Document SLLには対応しません。条件Breakpointと論理Read/Write Watchpoint、命令Index Input Replay、Terminal Game Input Modeを利用できますが、一般Terminalはnative Key-up Eventを通知できません。ROM 範囲は現在書き込み保護されません。Bus Traceは命令単位の論理アクセスであり、実Z80の電気的タイミングや各T-stateを再現するものではありません。CLI `test` は簡易 HALT 検証で、詳細なレジスタ／メモリ検証には `Machine` を使う Zig ユニットテスト API を利用します。
+非公式命令・未文書化フラグ、無視・繰返しPrefix、電気的サイクル精密性、実機周辺機器、Wasm、GDB、LSPは対象外です。IM0はRST注入のみ対応します。ClassicのROMは書込み可能です。Bus Traceは論理イベントであり、端子のタイミングを再現しません。Terminalにはnative key-upがありません。CLI `test` はHALT確認で、詳細な状態検証はZigテストを使用します。
 
-次の優先事項は、File-aware Assembly、保存可能なSymbol/Source Map、Project Support、Port I/Oです。
+CLI/TUIともinclude/incbinとSource Mapに対応し、TUIは未保存のルートバッファを利用します。[ベースライン](docs/development/baseline.md)、[品質契約](docs/development/quality-improvements.md)、[テスト方針](docs/development/testing-strategy.md)を参照してください。

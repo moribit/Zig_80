@@ -1,7 +1,14 @@
 const trace = @import("../trace/trace.zig");
 
+pub const PortDevice = struct {
+    context: *anyopaque,
+    read: *const fn (*anyopaque, u16) u8,
+    write: *const fn (*anyopaque, u16, u8) void,
+};
+
 pub const Bus = struct {
     memory: [65536]u8 = @splat(0),
+    port_device: ?PortDevice = null,
     trace_sink: ?trace.TraceSink = null,
     debug_trace_sink: ?trace.TraceSink = null,
     trace_sequence: u64 = 0,
@@ -54,10 +61,18 @@ pub const Bus = struct {
         self.write8(address, @truncate(value));
         self.write8(address +% 1, @truncate(value >> 8));
     }
-    pub fn input(_: *Bus, _: u16) u8 {
-        return 0xff;
+    pub fn input(self: *Bus, port: u16) u8 {
+        const value = if (self.port_device) |device| device.read(device.context, port) else 0xff;
+        self.record(.io_read, port, value, .{ .iorq = true, .rd = true });
+        return value;
     }
-    pub fn output(_: *Bus, _: u16, _: u8) void {}
+    pub fn output(self: *Bus, port: u16, value: u8) void {
+        if (self.port_device) |device| device.write(device.context, port, value);
+        self.record(.io_write, port, value, .{ .iorq = true, .wr = true });
+    }
+    pub fn acknowledgeInterrupt(self: *Bus, value: u8) void {
+        self.record(.interrupt_ack, 0, value, .{ .m1 = true, .iorq = true, .int = true });
+    }
 
     fn record(self: *Bus, kind: trace.BusEventKind, address: u16, data: u8, signals: trace.BusSignals) void {
         const event: trace.BusEvent = .{

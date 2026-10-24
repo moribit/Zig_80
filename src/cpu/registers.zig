@@ -9,6 +9,14 @@ pub const Registers = struct {
     l: u8 = 0,
     pc: u16 = 0,
     sp: u16 = 0xffff,
+    af_alt: u16 = 0,
+    bc_alt: u16 = 0,
+    de_alt: u16 = 0,
+    hl_alt: u16 = 0,
+    ix: u16 = 0,
+    iy: u16 = 0,
+    i: u8 = 0,
+    r: u8 = 0,
 
     pub fn af(self: Registers) u16 {
         return pair(self.a, self.f);

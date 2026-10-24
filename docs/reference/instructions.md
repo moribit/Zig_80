@@ -22,4 +22,4 @@ ADC/SBC register forms take 4 T-states, `(HL)` 7, and immediate 7. `INC/DEC (HL)
 
 CB-prefixed register operations take 8 T-states. `BIT b,(HL)` takes 12; modifying `(HL)` operations take 15. BIT preserves C, sets H, clears N, and derives S/Z/PV from the tested bit. SET/RES do not change flags. Rotate/shift operations derive S/Z/PV and C from their result and clear H/N.
 
-IX/IY, interrupts, I/O, and undocumented SLL remain unimplemented.
+The table above describes the original subset. The complete current encoding/operand/timing table is [generated coverage](../development/cpu-coverage.md). IX/IY, ED, port I/O and interrupts are now supported; see [CPU contracts](../architecture/cpu.md). Undocumented SLL remains unsupported.

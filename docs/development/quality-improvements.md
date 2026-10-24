@@ -62,3 +62,21 @@ ADD/SUB over all operands/carry values, INC/DEC boundaries, and an integration
 golden for encoding/disassembly/CPU/memory/ordered logical trace.
 Existing tests cover LD matrix, logic, CB documented matrix, branches, stack,
 watchpoints, editor, display, waveform and rendering. This is not full Z80 validation.
+
+## Phase 2 record
+
+85 tests pass on Zig 0.16.0, including 696 canonical metadata rows and DAA valid
+BCD arithmetic pairs. Optional differential verification: 27,000/27,000 pass.
+The pixel CLI sample retains its 6-byte encoding, 3 instructions and 24 T-states.
+Assembly expressions, encoding and file loading are separate modules; both CLI
+and TUI resolve includes from an unsaved root with cached inputs across passes.
+Existing tests were moved by subsystem without dropping cases. TUI rendering and
+execution already had separate files; a wholesale AppState rewrite was avoided.
+Relative-branch wrapping regression: `org 0xffff; jr 0` encodes `18 FF`.
+Multi-diagnostic recovery remains future work; diagnostics stop at the first
+failure with file, line and column information.
+
+日本語: Phase 2 は85テストと27,000件の独立比較が成功しています。内部表は696形式を検証。
+CLI/TUIのinclude経路、未保存バッファ、2パス間の入力キャッシュ、相対分岐の16bitラップを
+整備しました。表示と実行は既存の境界を維持し、AppState全体の作り直しは行っていません。
+複数診断の回復処理は未実装で、最初のエラーで停止します。

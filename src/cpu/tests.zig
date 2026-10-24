@@ -454,5 +454,6 @@ test "unknown opcode reports location" {
     var c = Cpu{};
     try std.testing.expectError(error.UnknownOpcode, c.step(&b));
     try std.testing.expectEqual(@as(u16, 0), c.last_unknown_pc);
-    try std.testing.expectEqual(@as(u8, 0xdd), c.last_unknown_opcode);
+    try std.testing.expectEqual(@as(u8, 0), c.last_unknown_opcode);
+    try std.testing.expectEqual(@as(?u8, 0xdd), c.fault.?.prefix);
 }

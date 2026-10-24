@@ -1,5 +1,11 @@
 const std = @import("std");
 
+test "relative branch assembly wraps logical addresses at FFFF" {
+    var result = try assembler.assemble(std.testing.allocator, "org 0xffff\njr 0\n");
+    defer result.deinit();
+    try std.testing.expectEqualSlices(u8, &.{ 0x18, 0xff }, result.bytes.items);
+}
+
 test "TUI assembles unsaved root buffer with the same includes as CLI" {
     var state = try AppState.init(std.testing.allocator, "tests/fixtures/include/root.asm", "include \"draw.inc\"\nld a,0x42\nhalt\n");
     defer state.deinit();

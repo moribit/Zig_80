@@ -1,3 +1,5 @@
+pub const Result8 = struct { value: u8, flags: u8 };
+
 pub const S: u8 = 0x80;
 pub const Z: u8 = 0x40;
 pub const H: u8 = 0x10;
@@ -12,7 +14,7 @@ pub fn set(f: *u8, mask: u8, value: bool) void {
     if (value) f.* |= mask else f.* &= ~mask;
 }
 
-pub fn add8(a: u8, b: u8) struct { value: u8, flags: u8 } {
+pub fn add8(a: u8, b: u8) Result8 {
     const wide = @as(u16, a) + b;
     const value: u8 = @truncate(wide);
     var f: u8 = 0;
@@ -24,7 +26,7 @@ pub fn add8(a: u8, b: u8) struct { value: u8, flags: u8 } {
     return .{ .value = value, .flags = f };
 }
 
-pub fn sub8(a: u8, b: u8) struct { value: u8, flags: u8 } {
+pub fn sub8(a: u8, b: u8) Result8 {
     const value = a -% b;
     var f: u8 = N;
     if (value & 0x80 != 0) f |= S;
@@ -35,7 +37,7 @@ pub fn sub8(a: u8, b: u8) struct { value: u8, flags: u8 } {
     return .{ .value = value, .flags = f };
 }
 
-pub fn adc8(a: u8, b: u8, carry: bool) struct { value: u8, flags: u8 } {
+pub fn adc8(a: u8, b: u8, carry: bool) Result8 {
     const c: u8 = @intFromBool(carry);
     const wide = @as(u16, a) + @as(u16, b) + c;
     const value: u8 = @truncate(wide);
@@ -48,7 +50,7 @@ pub fn adc8(a: u8, b: u8, carry: bool) struct { value: u8, flags: u8 } {
     return .{ .value = value, .flags = f };
 }
 
-pub fn sbc8(a: u8, b: u8, carry: bool) struct { value: u8, flags: u8 } {
+pub fn sbc8(a: u8, b: u8, carry: bool) Result8 {
     const c: u8 = @intFromBool(carry);
     const value = a -% b -% c;
     var f: u8 = N;
@@ -68,7 +70,7 @@ pub fn add16HL(a: u16, b: u16, old_f: u8) struct { value: u16, flags: u8 } {
     return .{ .value = @truncate(wide), .flags = f };
 }
 
-pub fn rotateShift(operation: @import("instruction.zig").CbOperation, value: u8, old_f: u8) struct { value: u8, flags: u8 } {
+pub fn rotateShift(operation: @import("instruction.zig").CbOperation, value: u8, old_f: u8) Result8 {
     const old_carry: u8 = @intFromBool(isSet(old_f, C));
     const carry = switch (operation) {
         .rlc, .rl, .sla => value >> 7,
@@ -101,7 +103,7 @@ pub fn bitTest(bit: u3, value: u8, old_f: u8) u8 {
 
 pub const LogicOperation = enum { @"and", xor, @"or" };
 
-pub fn logic8(operation: LogicOperation, a: u8, b: u8) struct { value: u8, flags: u8 } {
+pub fn logic8(operation: LogicOperation, a: u8, b: u8) Result8 {
     const value = switch (operation) {
         .@"and" => a & b,
         .xor => a ^ b,
@@ -114,7 +116,7 @@ pub fn logic8(operation: LogicOperation, a: u8, b: u8) struct { value: u8, flags
     return .{ .value = value, .flags = f };
 }
 
-pub fn inc8(value: u8, old_f: u8) struct { value: u8, flags: u8 } {
+pub fn inc8(value: u8, old_f: u8) Result8 {
     const result = value +% 1;
     var f: u8 = old_f & C;
     if (result & 0x80 != 0) f |= S;
@@ -124,7 +126,7 @@ pub fn inc8(value: u8, old_f: u8) struct { value: u8, flags: u8 } {
     return .{ .value = result, .flags = f };
 }
 
-pub fn dec8(value: u8, old_f: u8) struct { value: u8, flags: u8 } {
+pub fn dec8(value: u8, old_f: u8) Result8 {
     const result = value -% 1;
     var f: u8 = (old_f & C) | N;
     if (result & 0x80 != 0) f |= S;

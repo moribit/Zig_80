@@ -1,12 +1,21 @@
 const std = @import("std");
 const instruction = @import("../cpu/instruction.zig");
 
-pub const Decoded = struct { address: u16, size: u8, bytes: [3]u8 = .{ 0, 0, 0 }, text: [32]u8 = undefined, text_len: usize = 0 };
+pub const Decoded = struct { address: u16, size: u8, bytes: [4]u8 = @splat(0), text: [48]u8 = undefined, text_len: usize = 0 };
 
 pub fn decode(data: []const u8, address: u16) Decoded {
     const i: usize = address;
-    const op = data[i];
-    var d = Decoded{ .address = address, .size = 1, .bytes = .{ op, 0, 0 } };
+    const op = byte(data, i);
+    var d = Decoded{ .address = address, .size = 1, .bytes = .{ op, 0, 0, 0 } };
+    if (@import("../cpu/extended_metadata.zig").lookup(0, op)) |definition| {
+        if (!definition.legacy) return decodeExtended(data, address, definition);
+    }
+    if (op == 0xed or op == 0xdd or op == 0xfd) {
+        if (op != 0xed and byte(data, i + 1) == 0xcb) {
+            if (@import("../cpu/extended_metadata.zig").lookupIndexedCb(op, byte(data, i + 3))) |definition| return decodeExtended(data, address, definition);
+        }
+        if (@import("../cpu/extended_metadata.zig").lookup(op, byte(data, i + 1))) |definition| return decodeExtended(data, address, definition);
+    }
     const w = struct {
         fn set(x: *Decoded, comptime fmt: []const u8, args: anytype) void {
             const s = std.fmt.bufPrint(&x.text, fmt, args) catch unreachable;
@@ -134,6 +143,36 @@ pub fn decode(data: []const u8, address: u16) Decoded {
         else => w(&d, "DB 0x{X:0>2}", .{op}),
     }
     return d;
+}
+
+fn decodeExtended(data: []const u8, address: u16, definition: @import("../cpu/extended_metadata.zig").Definition) Decoded {
+    var decoded: Decoded = .{ .address = address, .size = definition.size() };
+    for (0..decoded.size) |i| decoded.bytes[i] = byte(data, @as(usize, address) + i);
+    var operand: usize = if (definition.prefix == 0) 1 else 2;
+    var p: usize = 0;
+    while (p < definition.pattern.len) {
+        if (definition.pattern[p] != '{') {
+            decoded.text[decoded.text_len] = definition.pattern[p];
+            decoded.text_len += 1;
+            p += 1;
+            continue;
+        }
+        const kind = definition.pattern[p + 1];
+        p += 3;
+        var value: u16 = decoded.bytes[operand];
+        operand += 1;
+        if (kind == 'w') {
+            value |= @as(u16, decoded.bytes[operand]) << 8;
+            operand += 1;
+        }
+        if (kind == 'r') value = address +% decoded.size +% @as(u16, @bitCast(@as(i16, @as(i8, @bitCast(@as(u8, @truncate(value)))))));
+        const displacement: i8 = @bitCast(@as(u8, @truncate(value)));
+        const rendered = if (kind == 'd')
+            (if (displacement >= 0) std.fmt.bufPrint(decoded.text[decoded.text_len..], "+{d}", .{displacement}) catch unreachable else std.fmt.bufPrint(decoded.text[decoded.text_len..], "{d}", .{displacement}) catch unreachable)
+        else if (kind == 'b') std.fmt.bufPrint(decoded.text[decoded.text_len..], "0x{X:0>2}", .{value}) catch unreachable else std.fmt.bufPrint(decoded.text[decoded.text_len..], "0x{X:0>4}", .{value}) catch unreachable;
+        decoded.text_len += rendered.len;
+    }
+    return decoded;
 }
 
 fn byte(data: []const u8, i: usize) u8 {
