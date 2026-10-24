@@ -1,0 +1,19 @@
+bytes 3E 7F C6 01 32 00 80 76
+0000 LD A,0x7F
+0002 ADD A, 0x01
+0004 LD (0x8000),A
+0007 HALT
+step 0000->0002 A=7F F=00 SP=FFFF T=7
+step 0002->0004 A=80 F=94 SP=FFFF T=7
+step 0004->0007 A=80 F=94 SP=FFFF T=13
+step 0007->0008 A=80 F=94 SP=FFFF T=4
+trace 0 0 opcode_fetch 0000 3E
+trace 0 1 operand_read 0001 7F
+trace 1 0 opcode_fetch 0002 C6
+trace 1 1 operand_read 0003 01
+trace 2 0 opcode_fetch 0004 32
+trace 2 1 operand_read 0005 00
+trace 2 2 operand_read 0006 80
+trace 2 3 memory_write 8000 80
+trace 3 0 opcode_fetch 0007 76
+final PC=0008 instructions=4 T=31 memory[8000]=80

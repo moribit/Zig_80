@@ -223,9 +223,6 @@ pub const AppState = struct {
 
     fn loadAssembly(self: *AppState) void {
         const result = if (self.assembly) |*value| value else return;
-        const sink = self.machine.bus.trace_sink;
-        self.machine = .{};
-        self.machine.bus.trace_sink = sink;
         self.machine.load(result.bytes.items) catch {
             self.execution_state = .faulted;
             self.setStatus("Program is too large", .{});

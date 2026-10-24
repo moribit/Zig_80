@@ -1,0 +1,4 @@
+ld a,0x7f
+add a,1
+ld (0x8000),a
+halt

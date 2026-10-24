@@ -167,7 +167,11 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         } else if (std.mem.eql(u8, args[i], "--input-script") and i + 1 < args.len) {
             i += 1;
             const input_source = try Io.Dir.cwd().readFileAlloc(io, args[i], allocator, .limited(1024 * 1024));
-            input_events = try machine_input.parseScript(allocator, input_source);
+            var diagnostic: machine_input.ScriptDiagnostic = .{};
+            input_events = machine_input.parseScriptLocated(allocator, input_source, &diagnostic) catch |err| {
+                try out.print("{s}:{d}:{d}: {s}\n", .{ args[i], diagnostic.line, diagnostic.column, @errorName(err) });
+                return err;
+            };
         } else return error.InvalidArguments;
     }
     var machine = Machine{};

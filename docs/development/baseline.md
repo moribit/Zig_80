@@ -48,8 +48,8 @@ PUSH currently writes stack low byte before high byte, contrary to Z80 logical a
 
 `Machine.load` resets CPU but copies only new bytes; RAM, old program tail, input and random state remain.
 `Machine.reset` resets CPU and frame count, preserves RAM/input/random state. TUI instead replaces Machine with `.{} ` before loading.
-Input Recording appends events; script parsing sorts with an unstable sort using only instruction number.
-Replay starts with zero input and has no reset API. Equal-timestamp order therefore lacks a contract.
+Input Recording appends events; script parsing uses `std.mem.sort`. Inspection of Zig 0.16's standard library confirms this is **stable** (the initial audit suspected instability; an 80-event regression test passed unchanged).
+Replay starts with zero input and has no reset API. Equal-timestamp source order is already preserved by parsing.
 CLI execution and headless runner call Cpu.step directly. No wall-clock dependency in headless execution.
 
 ## Documentation discrepancies / 文書との差異

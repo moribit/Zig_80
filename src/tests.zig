@@ -28,6 +28,8 @@ const machine_input = @import("machine/input.zig");
 
 test {
     _ = @import("documentation_test.zig");
+    _ = @import("cpu/quality_tests.zig");
+    _ = @import("machine/quality_tests.zig");
 }
 
 fn execute(program: []const u8) !struct { Cpu, Bus } {

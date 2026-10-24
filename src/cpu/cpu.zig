@@ -4,6 +4,7 @@ const instruction = @import("instruction.zig");
 const Bus = @import("../machine/bus.zig").Bus;
 
 pub const CpuError = error{UnknownOpcode};
+pub const InstructionFault = struct { pc: u16, prefix: ?u8 = null, opcode: u8 };
 pub const StepResult = struct { pc_before: u16, pc_after: u16, opcode: u8, t_states: u16, halted: bool };
 
 pub const Cpu = struct {
@@ -11,6 +12,7 @@ pub const Cpu = struct {
     halted: bool = false,
     last_unknown_pc: u16 = 0,
     last_unknown_opcode: u8 = 0,
+    fault: ?InstructionFault = null,
     instruction_index: u64 = 0,
     total_t_states: u64 = 0,
 
@@ -21,6 +23,7 @@ pub const Cpu = struct {
     pub fn step(self: *Cpu, bus: *Bus) CpuError!StepResult {
         const before = self.registers.pc;
         if (self.halted) return result(self, before, 0x76, 4);
+        self.fault = null;
         bus.beginInstruction(self.instruction_index, self.total_t_states, before);
         const op = bus.readOpcode(self.registers.pc);
         self.registers.pc +%= 1;
@@ -140,6 +143,7 @@ pub const Cpu = struct {
             else => {
                 self.last_unknown_pc = before;
                 self.last_unknown_opcode = op;
+                self.fault = .{ .pc = before, .opcode = op };
                 self.registers.pc = before;
                 return error.UnknownOpcode;
             },
@@ -297,7 +301,16 @@ pub const Cpu = struct {
         return 13;
     }
     fn cb(self: *Cpu, bus: *Bus) CpuError!u16 {
-        const opcode = self.fetch8(bus);
+        const opcode = bus.readOpcode(self.registers.pc);
+        self.registers.pc +%= 1;
+        // Reject before reading a data operand or changing architectural state.
+        if (opcode >= 0x30 and opcode <= 0x37) {
+            self.last_unknown_pc = self.registers.pc -% 2;
+            self.last_unknown_opcode = opcode;
+            self.fault = .{ .pc = self.last_unknown_pc, .prefix = 0xcb, .opcode = opcode };
+            self.registers.pc = self.last_unknown_pc;
+            return error.UnknownOpcode;
+        }
         const register = opcode & 7;
         const value = if (register == 6) bus.readData8(self.registers.hl()) else self.regValue(register);
         const group = opcode >> 6;
@@ -319,12 +332,7 @@ pub const Cpu = struct {
             4 => .sla,
             5 => .sra,
             7 => .srl,
-            else => {
-                self.last_unknown_pc = self.registers.pc -% 2;
-                self.last_unknown_opcode = opcode;
-                self.registers.pc -%= 2;
-                return error.UnknownOpcode;
-            },
+            else => unreachable,
         };
         const changed = flags.rotateShift(operation, value, self.registers.f);
         if (register == 6) bus.write8(self.registers.hl(), changed.value) else self.setRegValue(register, changed.value);
@@ -358,8 +366,10 @@ pub const Cpu = struct {
         return 7;
     }
     fn push(self: *Cpu, bus: *Bus, v: u16) void {
-        self.registers.sp -%= 2;
-        bus.write16(self.registers.sp, v);
+        self.registers.sp -%= 1;
+        bus.write8(self.registers.sp, @truncate(v >> 8));
+        self.registers.sp -%= 1;
+        bus.write8(self.registers.sp, @truncate(v));
     }
     fn pop(self: *Cpu, bus: *Bus) u16 {
         const v = @as(u16, bus.readData8(self.registers.sp)) | (@as(u16, bus.readData8(self.registers.sp +% 1)) << 8);
