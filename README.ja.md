@@ -21,6 +21,17 @@ zig build run -- debug zig-out/pixel.bin
 zig build run -- test zig-out/pixel.bin
 ```
 
+## インストール
+
+Zig 0.16 または互換バージョンを PATH に追加し、ソースを取得したディレクトリで実行します。
+
+```console
+./scripts/install.sh
+zig80 --help
+```
+
+ReleaseFast モードでビルドし、`$HOME/.local/bin` にインストールします。必要に応じてこのディレクトリを PATH に追加してください。`./scripts/install.sh --prefix /custom/path` で `/custom/path/bin` に変更でき、`ZIG=/path/to/zig` でコンパイラを指定できます。再実行するとインストール済みのバイナリを更新します。
+
 ## ターミナルUI
 
 アセンブリソースを指定して、依存ゼロのターミナルフロントエンドを起動できます。

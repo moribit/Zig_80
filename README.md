@@ -21,6 +21,17 @@ zig build run -- debug zig-out/pixel.bin
 zig build run -- test zig-out/pixel.bin
 ```
 
+## Install
+
+With Zig 0.16 or a compatible version on your PATH, run from a source checkout:
+
+```console
+./scripts/install.sh
+zig80 --help
+```
+
+The script builds in ReleaseFast mode and installs to `$HOME/.local/bin`. Add that directory to your PATH if needed. Use `./scripts/install.sh --prefix /custom/path` to install to `/custom/path/bin`, or set `ZIG=/path/to/zig` to select the compiler. Re-running the script updates the installed binary.
+
 ## Terminal UI
 
 Open the dependency-free terminal frontend with an optional assembly source:
