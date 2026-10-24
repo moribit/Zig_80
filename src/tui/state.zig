@@ -142,8 +142,8 @@ pub const AppState = struct {
     display_frame: u64 = 0,
     display_changed_pixels: u16 = 0,
     display_change_until_ms: i64 = 0,
-    display_snapshot: [1024]u8 = [_]u8{0} ** 1024,
-    display_dirty: [8192]bool = [_]bool{false} ** 8192,
+    display_snapshot: [1024]u8 = @splat(0),
+    display_dirty: [8192]bool = @splat(false),
     display_fps: u16 = 0,
     display_fps_window_ms: i64 = 0,
     display_fps_window_frames: u16 = 0,
@@ -155,14 +155,14 @@ pub const AppState = struct {
     waveform_follow_cursor: bool = true,
     linked_pc: ?u16 = null,
     linked_instruction_index: ?u64 = null,
-    instruction_snapshots: [4096]?InstructionSnapshot = [_]?InstructionSnapshot{null} ** 4096,
+    instruction_snapshots: [4096]?InstructionSnapshot = @splat(null),
     quit_requested: bool = false,
     confirm_quit: bool = false,
     ignore_breakpoint_once: bool = false,
     game_input_mode: bool = false,
     game_input: machine_input.State = .{},
     input_recording: machine_input.Recording(4096) = .{},
-    input_release_at_ms: [7]i64 = [_]i64{0} ** 7,
+    input_release_at_ms: [7]i64 = @splat(0),
 
     pub fn init(allocator: std.mem.Allocator, path: ?[]const u8, text: []const u8) !AppState {
         var self = AppState{ .allocator = allocator, .source = try SourceBuffer.init(allocator, text) };

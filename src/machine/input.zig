@@ -93,7 +93,7 @@ pub fn parseScript(allocator: std.mem.Allocator, text: []const u8) ![]Event {
 }
 
 pub fn parseButton(text: []const u8) ?Button {
-    inline for (@typeInfo(Button).@"enum".fields) |field| if (std.ascii.eqlIgnoreCase(text, field.name)) return @enumFromInt(field.value);
+    inline for (std.enums.values(Button)) |value| if (std.ascii.eqlIgnoreCase(text, @tagName(value))) return value;
     return null;
 }
 

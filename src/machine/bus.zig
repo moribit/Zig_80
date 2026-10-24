@@ -1,7 +1,7 @@
 const trace = @import("../trace/trace.zig");
 
 pub const Bus = struct {
-    memory: [65536]u8 = [_]u8{0} ** 65536,
+    memory: [65536]u8 = @splat(0),
     trace_sink: ?trace.TraceSink = null,
     debug_trace_sink: ?trace.TraceSink = null,
     trace_sequence: u64 = 0,

@@ -6,7 +6,7 @@ pub const TokenList = struct { items: [48]Token = undefined, len: usize = 0 };
 
 pub const SyntaxCache = struct {
     const Slot = struct { line: usize = std.math.maxInt(usize), hash: u64 = 0, tokens: TokenList = .{} };
-    slots: [128]Slot = [_]Slot{.{}} ** 128,
+    slots: [128]Slot = @splat(.{}),
 
     pub fn tokens(self: *SyntaxCache, line_number: usize, line: []const u8) *const TokenList {
         const slot = &self.slots[line_number % self.slots.len];
@@ -79,8 +79,8 @@ pub const Completion = struct {
     replace_start: usize = 0,
     replace_end: usize = 0,
     selected: usize = 0,
-    items: [16][32]u8 = [_][32]u8{[_]u8{0} ** 32} ** 16,
-    lengths: [16]u8 = [_]u8{0} ** 16,
+    items: [16][32]u8 = @splat(@splat(0)),
+    lengths: [16]u8 = @splat(0),
     len: u8 = 0,
 
     pub fn item(self: *const Completion, index: usize) []const u8 {

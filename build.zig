@@ -15,7 +15,11 @@ pub fn build(b: *std.Build) void {
 
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run.addArgs(args);
+    if (@hasDecl(std.Build.Step.Run, "addPassthruArgs")) {
+        run.addPassthruArgs();
+    } else {
+        if (b.args) |args| run.addArgs(args);
+    }
     b.step("run", "Run zig80").dependOn(&run.step);
 
     const tests = b.addTest(.{

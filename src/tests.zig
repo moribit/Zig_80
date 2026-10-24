@@ -760,7 +760,7 @@ test "stream input decoder handles batches escape timeout unknown input and over
     decoder.feed("\x1b[99~z");
     try std.testing.expectEqual(@as(u21, 'z'), decoder.next(200).?.code.character);
 
-    var large: [300]u8 = [_]u8{'q'} ** 300;
+    var large: [300]u8 = @splat('q');
     decoder.feed(&large);
     var count: usize = 0;
     while (decoder.next(300) != null) count += 1;

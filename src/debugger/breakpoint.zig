@@ -204,12 +204,12 @@ fn flagValue(value: u8, name: FlagName) bool {
 }
 
 fn parseRegisterName(text: []const u8) ?RegisterName {
-    inline for (@typeInfo(RegisterName).@"enum".fields) |field| if (std.ascii.eqlIgnoreCase(text, field.name)) return @enumFromInt(field.value);
+    inline for (std.enums.values(RegisterName)) |value| if (std.ascii.eqlIgnoreCase(text, @tagName(value))) return value;
     return null;
 }
 
 fn parseFlagName(text: []const u8) ?FlagName {
-    inline for (@typeInfo(FlagName).@"enum".fields) |field| if (std.ascii.eqlIgnoreCase(text, field.name)) return @enumFromInt(field.value);
+    inline for (std.enums.values(FlagName)) |value| if (std.ascii.eqlIgnoreCase(text, @tagName(value))) return value;
     return null;
 }
 
