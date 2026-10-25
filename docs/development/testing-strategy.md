@@ -47,10 +47,10 @@ The optional external suite is a manual workflow input, separate from normal CI.
 `scripts/smoke.sh` uses only the built CLI and standard shell utilities.
 `python3 scripts/test_terminal.py` is an optional integration test tool: it opens
 isolated PTYs for both profiles, sends Ctrl+Q and Ctrl+C, and verifies original
-termios attributes, cursor visibility and alternate-screen exit. It does not
+termios attributes, cursor visibility and alternate-screen exit, including forced startup failure. It does not
 modify the user's terminal. Hard kills, power loss and fatal OS signals are not
 restoration guarantees. Python/curl are development tools, not zig80 dependencies.
 
 日本語: CIはLinux/macOSと0.16/0.17の組合せで実行します。外部CPUデータは手動オプションです。
-PTY検証は両ProfileのCtrl+Q/Ctrl+C終了後に端末設定・Cursor・代替画面の復元を確認します。
+PTY検証は両ProfileのCtrl+Q/Ctrl+C終了・起動途中の失敗後に端末設定・Cursor・代替画面の復元を確認します。
 通常のzig80実行にはPythonやcurlは不要です。

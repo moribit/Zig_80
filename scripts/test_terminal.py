@@ -11,11 +11,11 @@ import termios
 import time
 
 
-def check(binary, profile, quit_key):
+def check(binary, profile, quit_key, rows=30, columns=100):
     master, slave = pty.openpty()
     process = None
     try:
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         before = termios.tcgetattr(slave)
         process = subprocess.Popen(
             [binary, "tui", "--profile", profile],
@@ -34,7 +34,7 @@ def check(binary, profile, quit_key):
                 except OSError:
                     break
                 output.extend(data)
-                if not sent and b"\x1b[?1049h" in output:
+                if rows and not sent and b"\x1b[?1049h" in output:
                     os.write(master, quit_key)
                     sent = True
             if process.poll() is not None:
@@ -45,8 +45,12 @@ def check(binary, profile, quit_key):
                     except OSError:
                         break
                 break
-        assert process.poll() == 0, ("TUI exit", process.poll(), bytes(output[-1000:]))
-        assert sent, "TUI did not enter alternate screen"
+        assert process.poll() == (0 if rows else 1), ("TUI exit", process.poll(), bytes(output[-1000:]))
+        assert b"\x1b[?1049h" in output, "TUI did not enter alternate screen"
+        if rows:
+            assert sent, "quit key was not sent"
+        else:
+            assert b"TerminalSizeUnavailable" in output, "expected startup failure did not occur"
         assert b"\x1b[?1049l" in output, "alternate screen was not restored"
         assert b"\x1b[?25h" in output, "cursor was not restored"
         assert termios.tcgetattr(slave) == before, "terminal attributes were not restored"
@@ -63,4 +67,5 @@ if __name__ == "__main__":
     for profile in ("classic", "handheld"):
         for key in (b"\x11", b"\x03"):
             check(binary, profile, key)
-    print("TUI restored terminal attributes, alternate screen and cursor (both profiles, Ctrl+Q/Ctrl+C).")
+        check(binary, profile, b"", rows=0, columns=0)
+    print("TUI restored termios, alternate screen and cursor (both profiles, Ctrl+Q/Ctrl+C/startup failure).")

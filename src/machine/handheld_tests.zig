@@ -227,3 +227,13 @@ test "TUI and headless share handheld execution and VFD rendering" {
     app.renderDisplay(&state, &frame, .{ .x = 0, .y = 0, .width = 100, .height = 40 });
     try std.testing.expectEqual(@as(u21, '2'), frame.get(2, 1).codepoint);
 }
+
+test "configured TUI initializes profile and loaded program before the first Step" {
+    const AppState = @import("../tui/state.zig").AppState;
+    var state = try AppState.initConfigured(std.testing.allocator, null, "ld a,0x42\nhalt\n", std.testing.io, .{ .kind = .handheld });
+    defer state.deinit();
+    try std.testing.expectEqual(@as(u8, 0x3e), state.machine.bus.read8(0));
+    state.step();
+    try std.testing.expectEqual(@as(u8, 0x42), state.machine.cpu.registers.a);
+    try std.testing.expectEqual(@intFromPtr(&state.debug_session.watch_trace), @intFromPtr(state.machine.bus.debug_trace_sink.?.context));
+}

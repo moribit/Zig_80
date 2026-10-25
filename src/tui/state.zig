@@ -168,9 +168,22 @@ pub const AppState = struct {
     pub fn init(allocator: std.mem.Allocator, path: ?[]const u8, text: []const u8) !AppState {
         var self = AppState{ .allocator = allocator, .source = try SourceBuffer.init(allocator, text) };
         errdefer self.source.deinit();
-        if (path) |value| self.source_path = try allocator.dupe(u8, value);
-        if (text.len > 0) self.assemble() else self.setStatus("Ready", .{});
+        try self.finishInit(path, text);
         return self;
+    }
+
+    pub fn initConfigured(allocator: std.mem.Allocator, path: ?[]const u8, text: []const u8, io: ?Io, config: @import("../machine/profile.zig").Config) !AppState {
+        var self = AppState{ .allocator = allocator, .machine = try Machine.init(config), .assembly_io = io, .source = try SourceBuffer.init(allocator, text) };
+        errdefer self.source.deinit();
+        try self.finishInit(path, text);
+        return self;
+    }
+
+    fn finishInit(self: *AppState, path: ?[]const u8, text: []const u8) !void {
+        if (path) |value| self.source_path = try std.fs.path.resolve(self.allocator, &.{value});
+        if (text.len > 0) self.assemble() else self.setStatus("Ready", .{});
+        // The result may move. DebugSession.step rebinds its owned trace sink.
+        self.machine.bus.debug_trace_sink = null;
     }
 
     pub fn deinit(self: *AppState) void {
@@ -352,8 +365,13 @@ pub const AppState = struct {
 
     pub fn sourceLineForPC(self: *const AppState, pc: u16) ?usize {
         const result = if (self.assembly) |*value| value else return null;
-        for (result.source_map.items.items) |line| if (line.address == pc) return line.line;
+        for (result.source_map.items.items) |line| if (line.address == pc and self.isRootSource(line.file_path)) return line.line;
         return null;
+    }
+
+    pub fn isRootSource(self: *const AppState, path: ?[]const u8) bool {
+        if (path) |value| return if (self.source_path) |root| std.mem.eql(u8, value, root) else false;
+        return true;
     }
 
     pub fn toggleBreakpoint(self: *AppState) void {
@@ -362,7 +380,7 @@ pub const AppState = struct {
             self.setStatus("Assemble before setting a source breakpoint", .{});
             return;
         };
-        for (result.source_map.items.items) |line| if (line.line == line_number) {
+        for (result.source_map.items.items) |line| if (line.line == line_number and self.isRootSource(line.file_path)) {
             if (self.debug_session.breakpoints.remove(line.address)) {
                 self.setStatus("Removed breakpoint at 0x{X:0>4}", .{line.address});
                 self.showToast(.info, "Breakpoint removed", .{});
@@ -896,7 +914,7 @@ pub const AppState = struct {
         };
         if (!on_mnemonic) return null;
         const assembly = if (self.assembly) |*value| value else return null;
-        for (assembly.source_map.items.items) |info| if (info.line == position.line + 1) return info.address;
+        for (assembly.source_map.items.items) |info| if (info.line == position.line + 1 and self.isRootSource(info.file_path)) return info.address;
         return null;
     }
 
@@ -1023,6 +1041,7 @@ pub const AppState = struct {
     pub fn goToDiagnostic(self: *AppState, index: usize) bool {
         if (index >= self.diagnostics_list.items.len) return false;
         const diagnostic = self.diagnostics_list.items[index].value;
+        if (!self.isRootSource(diagnostic.file_path)) return false;
         const line = diagnostic.line orelse return false;
         if (self.source.goToLine(line - 1)) {
             self.active_screen = .editor;

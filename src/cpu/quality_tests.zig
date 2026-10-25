@@ -6,6 +6,30 @@ const disassembler = @import("../disassembler/disassembler.zig");
 const flags = @import("flags.zig");
 const assembler = @import("../assembler/assembler.zig");
 
+test "ED and indexed CB decode faults preserve registers R timing and memory" {
+    for ([_][4]u8{ .{ 0xed, 0, 0, 0 }, .{ 0xdd, 0xcb, 0xff, 0x36 }, .{ 0xfd, 0, 0, 0 } }) |bytes| {
+        var bus: Bus = .{};
+        var events: trace.RingBuffer(8) = .{};
+        bus.trace_sink = events.sink();
+        for (bytes, 0..) |byte, i| bus.memory[0xfffe +% @as(u16, @intCast(i))] = byte;
+        bus.memory[0x8000] = 0x42;
+        var cpu: Cpu = .{ .instruction_index = 9, .total_t_states = 123, .iff1 = true };
+        cpu.registers.pc = 0xfffe;
+        cpu.registers.r = 0xff;
+        cpu.registers.ix = 0x8001;
+        cpu.registers.f = 0x93;
+        const before = cpu.registers;
+        try std.testing.expectError(error.UnknownOpcode, cpu.step(&bus));
+        try std.testing.expectEqualDeep(before, cpu.registers);
+        try std.testing.expect(cpu.iff1);
+        try std.testing.expectEqual(@as(u64, 9), cpu.instruction_index);
+        try std.testing.expectEqual(@as(u64, 123), cpu.total_t_states);
+        try std.testing.expectEqual(@as(u8, 0x42), bus.read8(0x8000));
+        try std.testing.expectEqual(@as(?u8, bytes[0]), cpu.fault.?.prefix);
+        for (0..events.len) |i| try std.testing.expect(events.get(i).?.kind == .opcode_fetch or events.get(i).?.kind == .operand_read);
+    }
+}
+
 test "CPU core statically accepts a bus with no Machine or peripheral dependencies" {
     const TestBus = struct {
         bytes: [65536]u8 = @splat(0),

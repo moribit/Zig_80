@@ -12,6 +12,7 @@ permissions:
   contents: read
 jobs:
   test:
+    if: github.event_name != 'workflow_dispatch' || !inputs.differential
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +35,7 @@ jobs:
       - run: zig build test -Doptimize=ReleaseSafe --summary all
       - run: zig build -Doptimize=ReleaseFast
       - run: ./scripts/smoke.sh
+      - run: python3 scripts/test_terminal.py
       - if: matrix.zig == '0.16.0'
         run: |
           zig build coverage > /tmp/cpu-coverage.md

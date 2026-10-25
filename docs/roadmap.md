@@ -2,6 +2,17 @@
 
 This roadmap separates implemented behavior from possible future work. It is a planning document, not a delivery commitment. Each phase should preserve the dependency-free Zig 0.16 implementation, existing CLI compatibility, headless operation, and the shared Core APIs used by CLI and TUI.
 
+## Current implementation update (2026-10-25)
+
+The baseline and phase plans below are historical. Current status is in the
+[implementation report](development/implementation-report.md), [CPU coverage](development/cpu-coverage.md)
+and [Handheld guide](handheld/overview.md). Documented base/CB/ED/IX/IY forms,
+conditional debugging, recording/replay, include/incbin, serialized symbols/source
+maps and provisional Machine Profiles/port I/O are implemented. Remaining plans
+must be interpreted against that report, not the historical baseline.
+
+日本語: 以下は過去の計画です。現在の実装・未対応範囲は上記レポートを正本としてください。
+
 ## Investigated baseline before this change (2026-08-02, main `45d6e0d`)
 
 ### CPU and assembler

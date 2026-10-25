@@ -306,7 +306,7 @@ pub const definitions = [_]Definition{
     .{ .prefix = 0x00, .opcode = 0xc9, .pattern = "RET", .t_states = 10, .taken_t_states = 0, .legacy = true },
     .{ .prefix = 0x00, .opcode = 0xc3, .pattern = "JP {w}", .t_states = 10, .taken_t_states = 0, .legacy = true },
     .{ .prefix = 0x00, .opcode = 0xcd, .pattern = "CALL {w}", .t_states = 17, .taken_t_states = 0, .legacy = true },
-    .{ .prefix = 0x00, .opcode = 0x18, .pattern = "JR {r}", .t_states = 7, .taken_t_states = 12, .legacy = true },
+    .{ .prefix = 0x00, .opcode = 0x18, .pattern = "JR {r}", .t_states = 12, .legacy = true },
     .{ .prefix = 0x00, .opcode = 0x10, .pattern = "DJNZ {r}", .t_states = 8, .taken_t_states = 13, .legacy = true },
     .{ .prefix = 0x00, .opcode = 0x3a, .pattern = "LD A,({w})", .t_states = 13, .taken_t_states = 0, .legacy = true },
     .{ .prefix = 0x00, .opcode = 0x32, .pattern = "LD ({w}),A", .t_states = 13, .taken_t_states = 0, .legacy = true },

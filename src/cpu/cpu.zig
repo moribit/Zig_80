@@ -194,6 +194,7 @@ pub const Cpu = struct {
             return error.UnknownOpcode;
         }
         bus.beginInstruction(self.instruction_index, self.total_t_states, pc);
+        self.fault = null;
         self.incrementR();
         self.halted = false;
         var cycles: u16 = 13;

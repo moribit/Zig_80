@@ -32,6 +32,7 @@ pub const DebugSession = struct {
     }
 
     pub fn step(self: *DebugSession, machine: *Machine) !StepResult {
+        machine.bus.debug_trace_sink = self.watch_trace.sink();
         self.watch_trace.clear();
         self.last_watchpoint = null;
         self.previous = CpuSnapshot.capture(machine);

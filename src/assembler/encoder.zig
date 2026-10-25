@@ -10,12 +10,30 @@ const eval8 = @import("expression.zig").eval8;
 pub fn encodeInstruction(allocator: std.mem.Allocator, mnemonic: []const u8, operands_raw: []const u8, symbols: *Symbols, pc: u16, output: ?*Result, resolve: bool) AssembleError!u16 {
     var normalized_buf: [128]u8 = undefined;
     var n: usize = 0;
-    for (operands_raw) |ch| if (ch != ' ' and ch != '\t') {
+    var in_character = false;
+    for (operands_raw) |ch| {
+        if (ch == '\'') in_character = !in_character;
+        if (!in_character and (ch == ' ' or ch == '\t')) continue;
         if (n == normalized_buf.len) return error.InvalidOperand;
-        normalized_buf[n] = std.ascii.toUpper(ch);
+        normalized_buf[n] = if (in_character) ch else std.ascii.toUpper(ch);
         n += 1;
-    };
+    }
     const ops = normalized_buf[0..n];
+    if (std.ascii.eqlIgnoreCase(mnemonic, "rst")) {
+        const vector = try eval(ops, symbols, pc, resolve);
+        if (resolve and (vector > 0x38 or vector & 7 != 0)) return error.InvalidOperand;
+        return emit1(allocator, output, 0xc7 | @as(u8, if (resolve) @intCast(vector) else 0));
+    }
+    if (std.ascii.eqlIgnoreCase(mnemonic, "im")) {
+        const mode = try eval8(ops, symbols, pc, resolve);
+        if (mode > 2) return error.InvalidOperand;
+        return emitImm8(allocator, output, 0xed, switch (mode) {
+            0 => 0x46,
+            1 => 0x56,
+            2 => 0x5e,
+            else => unreachable,
+        });
+    }
     if (try encodeExtended(allocator, output, mnemonic, ops, symbols, pc, resolve)) |size| return size;
     if (std.ascii.eqlIgnoreCase(mnemonic, "nop")) return if (ops.len == 0) emit1(allocator, output, 0x00) else error.InvalidOperand;
     if (std.ascii.eqlIgnoreCase(mnemonic, "halt")) return if (ops.len == 0) emit1(allocator, output, 0x76) else error.InvalidOperand;
@@ -86,7 +104,7 @@ fn encodeExtended(a: std.mem.Allocator, out: ?*Result, mnemonic: []const u8, ops
     const metadata = @import("../cpu/extended_metadata.zig");
     var buffer: [300]u8 = undefined;
     const text = std.fmt.bufPrint(&buffer, "{s}{s}{s}", .{ mnemonic, if (ops.len == 0) "" else " ", ops }) catch return error.InvalidOperand;
-    for (text) |*ch| ch.* = std.ascii.toUpper(ch.*);
+    for (text[0..mnemonic.len]) |*ch| ch.* = std.ascii.toUpper(ch.*);
     for (0..3) |pass_number| for (metadata.definitions) |definition| {
         if (definition.legacy) continue;
         if (std.mem.count(u8, definition.pattern, "{") != pass_number) continue;

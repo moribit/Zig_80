@@ -274,7 +274,7 @@ IM0 supports injected RST instructions only. Undocumented SLL, IXH/IXL/IYH/IYL, 
 | 00 | C9 | `RET` | 1 | 10 | 0 | kept | tested |
 | 00 | C3 | `JP {w}` | 3 | 10 | 0 | kept | tested |
 | 00 | CD | `CALL {w}` | 3 | 17 | 0 | kept | tested |
-| 00 | 18 | `JR {r}` | 2 | 7 | 12 | kept | tested |
+| 00 | 18 | `JR {r}` | 2 | 12 | 0 | kept | tested |
 | 00 | 10 | `DJNZ {r}` | 2 | 8 | 13 | kept | tested |
 | 00 | 3A | `LD A,({w})` | 3 | 13 | 0 | kept | tested |
 | 00 | 32 | `LD ({w}),A` | 3 | 13 | 0 | kept | tested |

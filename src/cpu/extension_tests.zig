@@ -17,6 +17,7 @@ test "DAA also adjusts invalid BCD accumulator states after subtraction" {
 }
 
 test "shared extension metadata roundtrips and executes every declared encoding" {
+    try std.testing.expectEqual(@as(u16, 12), @import("extended_metadata.zig").lookup(0, 0x18).?.t_states);
     for (@import("extended_metadata.zig").definitions) |definition| {
         var bytes: [4]u8 = @splat(0);
         var index: usize = 0;

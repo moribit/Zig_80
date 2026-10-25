@@ -115,7 +115,8 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
             if (line_info) |info| {
                 frame.print(rect.x + 20, y, mergeStyle(base, auxiliary), "{X:0>4}", .{info.address});
                 const decoded = disassembler.decodeBus(&state.machine.bus, info.address);
-                for (0..@min(@as(usize, decoded.size), 4)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
+                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
+                if (decoded.size > 3) frame.set(rect.x + 35, y, '+', mergeStyle(base, auxiliary));
             } else {
                 frame.writeText(rect.x + 20, y, "----", mergeStyle(base, auxiliary));
             }
@@ -175,12 +176,12 @@ fn renderGutterSeparators(state: *const AppState, frame: *Frame, rect: Rect, y: 
 
 fn lineInfo(state: *const AppState, source_line: usize) ?@import("../assembler/assembler.zig").LineInfo {
     const assembly = if (state.assembly) |*value| value else return null;
-    for (assembly.source_map.items.items) |line| if (line.line == source_line) return line;
+    for (assembly.source_map.items.items) |line| if (line.line == source_line and state.isRootSource(line.file_path)) return line;
     return null;
 }
 
 fn diagnosticOnLine(state: *const AppState, source_line: usize) bool {
-    for (state.diagnostics_list.items) |owned| if (owned.value.line != null and owned.value.line.? == source_line) return true;
+    for (state.diagnostics_list.items) |owned| if (owned.value.line != null and owned.value.line.? == source_line and state.isRootSource(owned.value.file_path)) return true;
     return false;
 }
 
@@ -229,7 +230,7 @@ fn renderSelection(state: *const AppState, frame: *Frame, source_x: usize, limit
 fn renderInlineDiagnostic(state: *const AppState, frame: *Frame, source_x: usize, source_limit: usize, pane_limit: usize, y: usize, line_index: usize, text: []const u8) void {
     for (state.diagnostics_list.items) |owned| {
         const diagnostic = owned.value;
-        if (diagnostic.line == null or diagnostic.line.? != line_index + 1) continue;
+        if (diagnostic.line == null or diagnostic.line.? != line_index + 1 or !state.isRootSource(diagnostic.file_path)) continue;
         if (diagnostic.column) |column_one| {
             const first = column_one -| 1;
             const last = @min(diagnostic.end_column orelse column_one, text.len);

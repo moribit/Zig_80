@@ -65,9 +65,7 @@ fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         std.process.exit(1);
     }
     const source = if (path) |value| try Io.Dir.cwd().readFileAlloc(io, value, allocator, .limited(1024 * 1024)) else "";
-    var state = try TuiState.init(allocator, path, source);
-    state.machine = try Machine.init(config);
-    state.assembly_io = io;
+    var state = try TuiState.initConfigured(allocator, path, source, io, config);
     defer state.deinit();
     state.attachTrace();
     const locale = environ.get("LC_ALL") orelse environ.get("LC_CTYPE") orelse environ.get("LANG") orelse "";
@@ -212,6 +210,7 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
         machine.setInput(replay.advance(count).value);
         const step = machine.step() catch |e| {
             try out.print("unknown opcode 0x{X:0>2} at PC=0x{X:0>4}\n", .{ machine.cpu.last_unknown_opcode, machine.cpu.last_unknown_pc });
+            if (machine.cpu.fault) |fault| if (fault.prefix) |prefix| try out.print("prefix=0x{X:0>2}, opcode=0x{X:0>2}\n", .{ prefix, fault.opcode });
             return e;
         };
         count = @intCast(machine.cpu.instruction_index);

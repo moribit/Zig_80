@@ -18,6 +18,12 @@ test "TUI assembles unsaved root buffer with the same includes as CLI" {
     try std.testing.expectEqualSlices(u8, expected.bytes.items, state.assembly.?.bytes.items);
     const bytes = state.assembly.?.bytes.items;
     try std.testing.expectEqualSlices(u8, &.{ 0x3e, 0x42, 0x76 }, bytes[bytes.len - 3 ..]);
+    try std.testing.expectEqual(@as(?usize, null), state.sourceLineForPC(0));
+    try std.testing.expectEqual(@as(?usize, 2), state.sourceLineForPC(2));
+    var failed_state = try AppState.initConfigured(std.testing.allocator, "tests/fixtures/include/error.asm", "include \"error.inc\"\n", std.testing.io, .{});
+    defer failed_state.deinit();
+    try std.testing.expectEqual(@as(usize, 1), failed_state.diagnostics_list.items.len);
+    try std.testing.expect(!failed_state.goToDiagnostic(0));
 }
 const Cpu = @import("../cpu/cpu.zig").Cpu;
 const Bus = @import("../machine/bus.zig").Bus;
@@ -73,6 +79,9 @@ test "file assembler resolves include incbin provenance diagnostics and cycles" 
     try std.testing.expectEqual(@as(usize, 1), failure.line);
 }
 test "assembler directives labels forward references and numbers" {
+    var literals = try assembler.assemble(std.testing.allocator, "ld a,'a'\nld b,' '\nrst 0x38\nim 0x2\n");
+    defer literals.deinit();
+    try std.testing.expectEqualSlices(u8, &.{ 0x3e, 0x61, 0x06, 0x20, 0xff, 0xed, 0x5e }, literals.bytes.items);
     const source = "org 0\nVALUE equ 0x2A\n jr next\n db \"A\", 0b10\nnext:\n ld a, VALUE\n dw next\n halt\n";
     var result = try assembler.assemble(std.testing.allocator, source);
     defer result.deinit();

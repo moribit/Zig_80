@@ -22,4 +22,11 @@ printf 'ld (ix+0),0x42\nhalt\n' > "$work_dir/indexed.asm"
 "$binary" asm "$work_dir/indexed.asm" -o "$work_dir/indexed.bin"
 result=$("$binary" disasm "$work_dir/indexed.bin")
 case "$result" in *'DD 36 00 42'*) ;; *) printf '%s\n' "$result"; exit 1 ;; esac
+printf 'db 0xed,0\n' > "$work_dir/invalid.asm"
+"$binary" asm "$work_dir/invalid.asm" -o "$work_dir/invalid.bin"
+if result=$("$binary" run "$work_dir/invalid.bin" 2>&1); then
+    printf '%s\n' 'Unsupported ED opcode unexpectedly succeeded.'
+    exit 1
+fi
+case "$result" in *'prefix=0xED, opcode=0x00'*) ;; *) printf '%s\n' "$result"; exit 1 ;; esac
 printf '%s\n' 'CLI smoke, samples, four-byte disassembly and replay comparison passed.'
