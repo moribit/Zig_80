@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+PC-8001 / Pico 2の通信検証環境（Zig 0.17.0）を追加しました。
+[ビルド](hardware/pico2-pc8001/README.md)・[測定と段階別検証手順](docs/pc8001-serial-validation.md)を参照してください。
+UF2生成とモック検証までの状態で、実機S10通信は未確認です。
+
 Zig_80は、Z80プログラムを書く、アセンブルする、実行する、デバッグする、検証するための依存なし統合環境です。学習にも利用できますが、初心者、Assembly経験者、Retro Game開発者、Emulator開発者、Headless CI利用者を対象とする通常の開発Toolとして設計します。Zig 0.16系のMVPで、Assembly、実行、逆Assembly、Debug、Trace、1bpp描画を一つのBinaryへまとめています。
 
 プロジェクトの思想、実機を含む将来像、長期的な設計方針については、[ビジョンとアーキテクチャの方向性](docs/vision.ja.md) を参照してください。記載されている将来像は構想段階であり、実装予定を確約するものではありません。

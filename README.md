@@ -2,6 +2,10 @@
 
 [日本語](README.ja.md)
 
+PC-8001 / Pico 2 experimental serial validation (Zig 0.17.0):
+[build and safety](hardware/pico2-pc8001/README.md), [staged measurement procedure](docs/pc8001-serial-validation.md).
+Firmware/UF2 and software mocks are available; physical S10 communication is unverified.
+
 Zig_80 is a dependency-free integrated environment for writing, assembling, running, debugging, and verifying Z80 programs. It is useful for learning, but is designed as a general development tool for newcomers, experienced assembly programmers, retro-game authors, emulator developers, and headless CI workflows. The current MVP targets Zig 0.16 and combines assembly, execution, disassembly, debugging, tracing, and 1bpp display output in a single binary.
 
 For the project's principles, long-term direction, and possible path toward physical hardware, see [Vision and Architectural Direction](docs/vision.md). The future described there remains conceptual and is not a delivery commitment.

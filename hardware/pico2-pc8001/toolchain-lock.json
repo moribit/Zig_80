@@ -1,0 +1,11 @@
+{
+  "pico_sdk": {"version": "2.3.0", "commit": "98a542c1a62fb549ffb5d66a3e5892b06276b670"},
+  "tinyusb_commit": "86ad6e56c1700e85f1c5678607a762cfe3aa2f47",
+  "host_zig": "0.17.0",
+  "validated_arm_gcc": "xPack 15.2.1-1.1",
+  "darwin_arm64_toolchain_archive_sha256": "574082d35e49a2bcbdc355836b2a3ae5e5bb3b9456c9f5e37177db2ab4aad870",
+  "toolchain_release": "https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/tag/v15.2.1-1.1",
+  "board": "pico2",
+  "baud": 300,
+  "cycles_per_bit": 8
+}

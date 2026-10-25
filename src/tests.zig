@@ -1,4 +1,7 @@
 test {
+    _ = @import("serial/artifacts.zig");
+    _ = @import("serial/protocol.zig");
+    _ = @import("serial/z80_tests.zig");
     _ = @import("documentation_test.zig");
     _ = @import("cpu/tests.zig");
     _ = @import("assembler/tests.zig");

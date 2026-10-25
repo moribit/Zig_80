@@ -29,6 +29,8 @@ jobs:
         run: zig fmt --check .
       - run: zig build
       - run: zig build test --summary all
+      - if: matrix.zig == '0.17.0'
+        run: sh hardware/pico2-pc8001/test.sh
       - run: ./scripts/smoke.sh
       - run: python3 scripts/test_terminal.py
       - run: zig build -Doptimize=ReleaseSafe
