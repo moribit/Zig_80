@@ -129,7 +129,7 @@ SHA256 `2154e3e67c88de1dd8ad9df3baf3d41e4fd1772ab501a94d443acd70b684a5b3`。
 | 既存CLI/TUI | サンプルsmoke/replay比較と、両Profileの端末復元テスト成功 |
 | ビルド互換性 | 0.17.0 Debug/ReleaseSafe/ReleaseFast、0.16.0ビルド、aarch64-linux-muslクロスビルド成功 |
 | ReleaseSafeテスト | 105件成功 |
-| CI | Linux/macOSの0.17.0ジョブへハードウェア不要の検証を追加。リモート実行結果は未取得 |
+| CI | 実装コミット `c8a934a` のLinux/macOS × Zig 0.16/0.17、全4ジョブ成功。[実行ログ](https://github.com/moribit/Zig_80/actions/runs/40186895044)。0.17では追加のモック検証も成功 |
 | Z80機能モデル | 4サンプルの初期化、送受信、CTS待ち、最終TxEMPTY、タイムアウト、PE/OE/FE、比較、SP/保存レジスタ/境界を検証 |
 | 物理USB/PIO/S10 | 未実施。モデルはUSB PHYや8251のビット精度を再現しない |
 
