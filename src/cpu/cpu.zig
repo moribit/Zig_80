@@ -1,7 +1,6 @@
 const Registers = @import("registers.zig").Registers;
 const flags = @import("flags.zig");
 const instruction = @import("instruction.zig");
-const Bus = @import("../machine/bus.zig").Bus;
 
 pub const CpuError = error{UnknownOpcode};
 pub const InstructionFault = struct { pc: u16, prefix: ?u8 = null, opcode: u8 };
@@ -27,7 +26,7 @@ pub const Cpu = struct {
         self.* = .{};
     }
 
-    pub fn step(self: *Cpu, bus: *Bus) CpuError!StepResult {
+    pub fn step(self: *Cpu, bus: anytype) CpuError!StepResult {
         const before = self.registers.pc;
         if (self.nmi_pending or (self.int_line and self.iff1 and self.ei_delay == 0)) return self.acceptInterrupt(bus);
         if (self.halted) {
@@ -184,7 +183,7 @@ pub const Cpu = struct {
         self.registers.r = (self.registers.r & 0x80) | ((self.registers.r +% 1) & 0x7f);
     }
 
-    fn acceptInterrupt(self: *Cpu, bus: *Bus) CpuError!StepResult {
+    fn acceptInterrupt(self: *Cpu, bus: anytype) CpuError!StepResult {
         const pc = self.registers.pc;
         // IM0 accepts the documented single-byte RST vectors. Other injected
         // instructions are deliberately rejected before architectural changes.
@@ -223,7 +222,7 @@ pub const Cpu = struct {
         return result(self, pc, self.int_data, cycles);
     }
 
-    fn ed(self: *Cpu, bus: *Bus) CpuError!u16 {
+    fn ed(self: *Cpu, bus: anytype) CpuError!u16 {
         const op = bus.readOpcode(self.registers.pc);
         self.registers.pc +%= 1;
         const definition = @import("extended_metadata.zig").lookup(0xed, op) orelse {
@@ -345,7 +344,7 @@ pub const Cpu = struct {
         };
     }
 
-    fn indexed(self: *Cpu, bus: *Bus, prefix: u8) CpuError!u16 {
+    fn indexed(self: *Cpu, bus: anytype, prefix: u8) CpuError!u16 {
         const start = self.registers.pc -% 1;
         const op = bus.readOpcode(self.registers.pc);
         self.registers.pc +%= 1;
@@ -465,7 +464,7 @@ pub const Cpu = struct {
         return flags.isSet(self.registers.f, mask) == (code & 1 != 0);
     }
 
-    fn extendedBase(self: *Cpu, bus: *Bus, op: u8) ?u16 {
+    fn extendedBase(self: *Cpu, bus: anytype, op: u8) ?u16 {
         const definition = @import("extended_metadata.zig").lookup(0, op) orelse return null;
         if (op & 0xc7 == 0xc4) {
             const target = self.fetch16(bus);
@@ -584,21 +583,21 @@ pub const Cpu = struct {
     fn result(self: *Cpu, before: u16, op: u8, cycles: u16) StepResult {
         return .{ .pc_before = before, .pc_after = self.registers.pc, .opcode = op, .t_states = cycles, .halted = self.halted };
     }
-    fn fetch8(self: *Cpu, bus: *Bus) u8 {
+    fn fetch8(self: *Cpu, bus: anytype) u8 {
         const v = bus.readOperand8(self.registers.pc);
         self.registers.pc +%= 1;
         return v;
     }
-    fn fetch16(self: *Cpu, bus: *Bus) u16 {
+    fn fetch16(self: *Cpu, bus: anytype) u16 {
         const v = bus.readOperand16(self.registers.pc);
         self.registers.pc +%= 2;
         return v;
     }
-    fn ld8(self: *Cpu, bus: *Bus, dst: *u8) u16 {
+    fn ld8(self: *Cpu, bus: anytype, dst: *u8) u16 {
         dst.* = self.fetch8(bus);
         return 7;
     }
-    fn ld16(self: *Cpu, bus: *Bus, p: Pair) u16 {
+    fn ld16(self: *Cpu, bus: anytype, p: Pair) u16 {
         const v = self.fetch16(bus);
         switch (p) {
             .bc => self.registers.setBC(v),
@@ -621,14 +620,14 @@ pub const Cpu = struct {
         self.registers.f = x.flags;
         return 4;
     }
-    fn incMemory(self: *Cpu, bus: *Bus) u16 {
+    fn incMemory(self: *Cpu, bus: anytype) u16 {
         const address = self.registers.hl();
         const x = flags.inc8(bus.readData8(address), self.registers.f);
         bus.write8(address, x.value);
         self.registers.f = x.flags;
         return 11;
     }
-    fn decMemory(self: *Cpu, bus: *Bus) u16 {
+    fn decMemory(self: *Cpu, bus: anytype) u16 {
         const address = self.registers.hl();
         const x = flags.dec8(bus.readData8(address), self.registers.f);
         bus.write8(address, x.value);
@@ -659,32 +658,32 @@ pub const Cpu = struct {
             else => unreachable,
         }
     }
-    fn ldRegister(self: *Cpu, bus: *Bus, destination: u8, source: u8) u16 {
+    fn ldRegister(self: *Cpu, bus: anytype, destination: u8, source: u8) u16 {
         const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
         if (destination == 6) bus.write8(self.registers.hl(), value) else self.setRegValue(destination, value);
         return instruction.ldRegisterTStates(destination, source);
     }
-    fn logic(self: *Cpu, bus: *Bus, operation: flags.LogicOperation, source: u8) u16 {
+    fn logic(self: *Cpu, bus: anytype, operation: flags.LogicOperation, source: u8) u16 {
         const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
         const result_value = flags.logic8(operation, self.registers.a, value);
         self.registers.a = result_value.value;
         self.registers.f = result_value.flags;
         return if (source == 6) 7 else 4;
     }
-    fn logicImmediate(self: *Cpu, bus: *Bus, operation: flags.LogicOperation) u16 {
+    fn logicImmediate(self: *Cpu, bus: anytype, operation: flags.LogicOperation) u16 {
         const result_value = flags.logic8(operation, self.registers.a, self.fetch8(bus));
         self.registers.a = result_value.value;
         self.registers.f = result_value.flags;
         return 7;
     }
-    fn adc(self: *Cpu, bus: *Bus, source: u8) u16 {
+    fn adc(self: *Cpu, bus: anytype, source: u8) u16 {
         const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
         const x = flags.adc8(self.registers.a, value, flags.isSet(self.registers.f, flags.C));
         self.registers.a = x.value;
         self.registers.f = x.flags;
         return if (source == 6) 7 else 4;
     }
-    fn adcImmediate(self: *Cpu, bus: *Bus) u16 {
+    fn adcImmediate(self: *Cpu, bus: anytype) u16 {
         return self.adcValue(self.fetch8(bus));
     }
     fn adcValue(self: *Cpu, value: u8) u16 {
@@ -693,14 +692,14 @@ pub const Cpu = struct {
         self.registers.f = x.flags;
         return 7;
     }
-    fn sbc(self: *Cpu, bus: *Bus, source: u8) u16 {
+    fn sbc(self: *Cpu, bus: anytype, source: u8) u16 {
         const value = if (source == 6) bus.readData8(self.registers.hl()) else self.regValue(source);
         const x = flags.sbc8(self.registers.a, value, flags.isSet(self.registers.f, flags.C));
         self.registers.a = x.value;
         self.registers.f = x.flags;
         return if (source == 6) 7 else 4;
     }
-    fn sbcImmediate(self: *Cpu, bus: *Bus) u16 {
+    fn sbcImmediate(self: *Cpu, bus: anytype) u16 {
         const x = flags.sbc8(self.registers.a, self.fetch8(bus), flags.isSet(self.registers.f, flags.C));
         self.registers.a = x.value;
         self.registers.f = x.flags;
@@ -719,7 +718,7 @@ pub const Cpu = struct {
         self.registers.f = x.flags;
         return 11;
     }
-    fn djnz(self: *Cpu, bus: *Bus) u16 {
+    fn djnz(self: *Cpu, bus: anytype) u16 {
         const raw = self.fetch8(bus);
         self.registers.b -%= 1;
         if (self.registers.b == 0) return 8;
@@ -727,7 +726,7 @@ pub const Cpu = struct {
         self.registers.pc +%= @bitCast(@as(i16, offset));
         return 13;
     }
-    fn cb(self: *Cpu, bus: *Bus) CpuError!u16 {
+    fn cb(self: *Cpu, bus: anytype) CpuError!u16 {
         const opcode = bus.readOpcode(self.registers.pc);
         self.registers.pc +%= 1;
         // Reject before reading a data operand or changing architectural state.
@@ -779,12 +778,12 @@ pub const Cpu = struct {
         self.registers.f = x.flags;
         return cycles;
     }
-    fn jpConditional(self: *Cpu, bus: *Bus, condition: bool) u16 {
+    fn jpConditional(self: *Cpu, bus: anytype, condition: bool) u16 {
         const target = self.fetch16(bus);
         if (condition) self.registers.pc = target;
         return 10;
     }
-    fn jr(self: *Cpu, bus: *Bus, condition: bool) u16 {
+    fn jr(self: *Cpu, bus: anytype, condition: bool) u16 {
         const raw = self.fetch8(bus);
         if (condition) {
             const offset: i8 = @bitCast(raw);
@@ -793,22 +792,22 @@ pub const Cpu = struct {
         }
         return 7;
     }
-    fn push(self: *Cpu, bus: *Bus, v: u16) void {
+    fn push(self: *Cpu, bus: anytype, v: u16) void {
         self.registers.sp -%= 1;
         bus.write8(self.registers.sp, @truncate(v >> 8));
         self.registers.sp -%= 1;
         bus.write8(self.registers.sp, @truncate(v));
     }
-    fn pop(self: *Cpu, bus: *Bus) u16 {
+    fn pop(self: *Cpu, bus: anytype) u16 {
         const v = @as(u16, bus.readData8(self.registers.sp)) | (@as(u16, bus.readData8(self.registers.sp +% 1)) << 8);
         self.registers.sp +%= 2;
         return v;
     }
-    fn pushPair(self: *Cpu, bus: *Bus, v: u16) u16 {
+    fn pushPair(self: *Cpu, bus: anytype, v: u16) u16 {
         self.push(bus, v);
         return 11;
     }
-    fn popPair(self: *Cpu, bus: *Bus, p: Pair) u16 {
+    fn popPair(self: *Cpu, bus: anytype, p: Pair) u16 {
         const v = self.pop(bus);
         switch (p) {
             .af => self.registers.setAF(v),

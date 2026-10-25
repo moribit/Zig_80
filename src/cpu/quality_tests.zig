@@ -6,6 +6,43 @@ const disassembler = @import("../disassembler/disassembler.zig");
 const flags = @import("flags.zig");
 const assembler = @import("../assembler/assembler.zig");
 
+test "CPU core statically accepts a bus with no Machine or peripheral dependencies" {
+    const TestBus = struct {
+        bytes: [65536]u8 = @splat(0),
+        pub fn beginInstruction(_: *@This(), _: u64, _: u64, _: u16) void {}
+        pub fn readOpcode(self: *@This(), address: u16) u8 {
+            return self.bytes[address];
+        }
+        pub fn readOperand8(self: *@This(), address: u16) u8 {
+            return self.bytes[address];
+        }
+        pub fn readData8(self: *@This(), address: u16) u8 {
+            return self.bytes[address];
+        }
+        pub fn readOperand16(self: *@This(), address: u16) u16 {
+            return @as(u16, self.bytes[address]) | (@as(u16, self.bytes[address +% 1]) << 8);
+        }
+        pub fn write8(self: *@This(), address: u16, value: u8) void {
+            self.bytes[address] = value;
+        }
+        pub fn write16(self: *@This(), address: u16, value: u16) void {
+            self.write8(address, @truncate(value));
+            self.write8(address +% 1, @truncate(value >> 8));
+        }
+        pub fn input(_: *@This(), _: u16) u8 {
+            return 0xff;
+        }
+        pub fn output(_: *@This(), _: u16, _: u8) void {}
+        pub fn acknowledgeInterrupt(_: *@This(), _: u8) void {}
+    };
+    var bus: TestBus = .{};
+    bus.bytes[0] = 0x3e;
+    bus.bytes[1] = 0x42;
+    var cpu: Cpu = .{};
+    _ = try cpu.step(&bus);
+    try std.testing.expectEqual(@as(u8, 0x42), cpu.registers.a);
+}
+
 test "unsupported CB at wrapping PC preserves state and only traces instruction bytes" {
     var bus: Bus = .{};
     var events: trace.RingBuffer(8) = .{};

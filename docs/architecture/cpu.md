@@ -1,7 +1,9 @@
 # CPU contract / CPU契約
 
-Cpu depends on registers, flags, instruction metadata and a Bus interface; no OS,
-terminal, display or concrete peripheral code is imported. Execution remains an
+Cpu depends on registers, flags, instruction metadata and a statically typed Bus interface; no OS,
+terminal, display or concrete peripheral code is imported. `step` and internal
+helpers accept `anytype` Bus operations; a standalone test bus proves that Machine
+and its devices are not required to compile CPU execution. Execution remains an
 explicit switch. The canonical metadata in `cpu/extended_metadata.zig` describes
 696 documented encodings, operand templates, lengths, timing/alternate timing and
 flag effects. New encodings use the same table in assembler and disassembler;
