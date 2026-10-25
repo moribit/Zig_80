@@ -261,7 +261,7 @@ fn disasmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8,
     while (address < data.len) {
         const d = disassembler.decode(data, @intCast(address));
         try out.print("{X:0>4}  ", .{address});
-        for (0..3) |j| if (j < d.size) try out.print("{X:0>2} ", .{d.bytes[j]}) else try out.writeAll("   ");
+        for (0..@max(@as(usize, 3), d.size)) |j| if (j < d.size) try out.print("{X:0>2} ", .{d.bytes[j]}) else try out.writeAll("   ");
         try out.print("  {s}\n", .{disassembler.text(&d)});
         address += d.size;
     }

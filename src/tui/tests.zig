@@ -1,4 +1,15 @@
 const std = @import("std");
+
+test "instruction panel shows all four indexed bytes and shared timing" {
+    var state = try AppState.init(std.testing.allocator, null, "ld (ix+0),0x42\n");
+    defer state.deinit();
+    state.assemble();
+    var frame = try Frame.init(std.testing.allocator, 80, 16);
+    defer frame.deinit();
+    tui_app.renderInstruction(&state, &frame, .{ .x = 0, .y = 0, .width = 80, .height = 16 });
+    try std.testing.expect(frameContains(&frame, "DD 36 00 42"));
+    try std.testing.expect(frameContains(&frame, "19 T"));
+}
 const Cpu = @import("../cpu/cpu.zig").Cpu;
 const Bus = @import("../machine/bus.zig").Bus;
 const Machine = @import("../machine/machine.zig").Machine;

@@ -784,3 +784,12 @@ pub fn lookupIndexedCb(prefix: u8, opcode: u8) ?Definition {
     for (definitions) |definition| if (definition.indexed_cb and definition.prefix == prefix and definition.opcode == opcode) return definition;
     return null;
 }
+
+pub fn lookupEncoded(bytes: []const u8) ?Definition {
+    if (bytes.len == 0) return null;
+    const first = bytes[0];
+    if (first != 0xcb and first != 0xed and first != 0xdd and first != 0xfd) return lookup(0, first);
+    if (bytes.len < 2) return null;
+    if ((first == 0xdd or first == 0xfd) and bytes[1] == 0xcb) return if (bytes.len >= 4) lookupIndexedCb(first, bytes[3]) else null;
+    return lookup(first, bytes[1]);
+}

@@ -115,7 +115,7 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
             if (line_info) |info| {
                 frame.print(rect.x + 20, y, mergeStyle(base, auxiliary), "{X:0>4}", .{info.address});
                 const decoded = disassembler.decodeBus(&state.machine.bus, info.address);
-                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
+                for (0..@min(@as(usize, decoded.size), 4)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
             } else {
                 frame.writeText(rect.x + 20, y, "----", mergeStyle(base, auxiliary));
             }
@@ -136,7 +136,7 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
             const decoded = disassembler.decodeBus(&state.machine.bus, info.address);
             if (suffix_x + decoded.size * 3 < rect.x + rect.width - 1) {
                 frame.writeText(suffix_x, y, "[", mergeStyle(base, auxiliary));
-                for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(suffix_x + 1 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
+                for (0..@min(@as(usize, decoded.size), 4)) |index| frame.print(suffix_x + 1 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
                 frame.writeText(suffix_x + 1 + decoded.size * 3, y, "]", mergeStyle(base, auxiliary));
             }
         };
@@ -387,19 +387,19 @@ pub fn renderInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
     y += 1;
     if (y < rect.y + rect.height - 1) {
         frame.writeText(rect.x + 2, y, "OPCODE", section_label);
-        for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 12 + index * 3, y, auxiliary, "{X:0>2}", .{decoded.bytes[index]});
+        for (0..@min(@as(usize, decoded.size), 4)) |index| frame.print(rect.x + 12 + index * 3, y, auxiliary, "{X:0>2}", .{decoded.bytes[index]});
     }
     y += 1;
     if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "LENGTH", "{d} byte{s}", .{ decoded.size, if (decoded.size == 1) "" else "s" });
     y += 1;
-    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "TIMING", "{d} T", .{instructionTiming(state, decoded.bytes[0])});
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "TIMING", "{d} T", .{instructionTiming(state, decoded)});
     y += 1;
     if (y < rect.y + rect.height - 1) {
         frame.writeText(rect.x + 2, y, "DESCRIPTION", section_label);
         writeTextClipped(frame, rect.x + 15, rect.x + rect.width - 1, y, instructionDescription(decoded.bytes[0]), .{});
     }
     y += 1;
-    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "FLAGS", "{s}", .{flagsAffected(decoded.bytes[0])});
+    if (y < rect.y + rect.height - 1) instructionField(frame, rect, y, "FLAGS", "{s}", .{(if (@import("../cpu/extended_metadata.zig").lookupEncoded(decoded.bytes[0..decoded.size])) |definition| definition.flagEffects() else flagsAffected(decoded.bytes[0]))});
 }
 
 fn instructionField(frame: *Frame, rect: Rect, y: usize, label: []const u8, comptime fmt: []const u8, args: anytype) void {
@@ -415,7 +415,11 @@ fn flagsAffected(opcode: u8) []const u8 {
     };
 }
 
-fn instructionTiming(state: *const AppState, opcode: u8) u16 {
+fn instructionTiming(state: *const AppState, decoded: disassembler.Decoded) u16 {
+    const opcode = decoded.bytes[0];
+    if (@import("../cpu/extended_metadata.zig").lookupEncoded(decoded.bytes[0..decoded.size])) |definition| {
+        if (opcode != 0x20 and opcode != 0x28) return definition.t_states;
+    }
     return switch (opcode) {
         0x00, 0x76 => 4,
         0x01, 0x11, 0x21, 0x31 => 10,
@@ -566,7 +570,7 @@ fn renderGroupedEvents(state: *const AppState, frame: *Frame, rect: Rect, select
     }
     if (rect.height > 4) {
         frame.writeText(rect.x + 2, rect.y + 3, "OPCODE", section_label);
-        for (0..@min(@as(usize, decoded.size), 3)) |byte| frame.print(rect.x + 13 + byte * 3, rect.y + 3, auxiliary, "{X:0>2}", .{decoded.bytes[byte]});
+        for (0..@min(@as(usize, decoded.size), 4)) |byte| frame.print(rect.x + 13 + byte * 3, rect.y + 3, auxiliary, "{X:0>2}", .{decoded.bytes[byte]});
     }
     if (rect.height > 5) frame.print(rect.x + 2, rect.y + 4, .{}, "EVENTS {d}   MEMORY {d}   I/O {d}", .{ event_count, memory_count, io_count });
     if (rect.height > 6) frame.writeText(rect.x + 2, rect.y + 5, "BUS EVENTS", section_label);

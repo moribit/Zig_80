@@ -1,0 +1,49 @@
+name: Quality
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      differential:
+        description: Download and run the pinned optional 27,000-vector CPU suite
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        zig: [0.16.0, 0.17.0]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ matrix.zig }}
+      - run: zig version
+      - if: matrix.zig == '0.16.0'
+        run: zig fmt --check .
+      - run: zig build
+      - run: zig build test --summary all
+      - run: ./scripts/smoke.sh
+      - run: python3 scripts/test_terminal.py
+      - run: zig build -Doptimize=ReleaseSafe
+      - run: zig build test -Doptimize=ReleaseSafe --summary all
+      - run: zig build -Doptimize=ReleaseFast
+      - run: ./scripts/smoke.sh
+      - if: matrix.zig == '0.16.0'
+        run: |
+          zig build coverage > /tmp/cpu-coverage.md
+          diff -u docs/development/cpu-coverage.md /tmp/cpu-coverage.md
+  differential:
+    if: github.event_name == 'workflow_dispatch' && inputs.differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+      - run: ./scripts/differential.sh

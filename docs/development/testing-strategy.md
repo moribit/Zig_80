@@ -17,6 +17,8 @@ The upstream README describes Ares-derived vectors with fixes and does not claim
 perfect hardware accuracy. No external data or library is required by normal build/test.
 Run `zig build differential -- /path/to/v1/00.json ...` with locally downloaded
 JSON files. Preserve the upstream MIT license when redistributing data.
+`scripts/differential.sh` optionally downloads the pinned representative subset
+and its license, then runs the same runner; set `ZIG` or `SST_CACHE_DIR` as needed.
 
 The runner compares primary/alternate registers, IX/IY/I/R, documented F mask D7,
 IFF/IM, final RAM, total T-states and ordered port transactions. It does not compare
@@ -33,3 +35,22 @@ The first run had 174 DAA failures; a regression test was added before the corre
 別の `differential` ステップで実行します。代表27命令・27,000件は成功しました。
 比較対象は文書化レジスタ・フラグ・RAM・T-state・Port入出力です。未文書化状態や端子波形は
 比較しません。外部Suite自身も完全性を保証するものではありません。
+
+## CI and frontend checks
+
+`.github/workflows/quality.yml` checks Zig 0.16/0.17 on Linux and macOS, Debug,
+ReleaseSafe and ReleaseFast builds, Debug/ReleaseSafe unit tests, CLI smoke and
+samples/replay comparison, and POSIX PTY terminal restoration. Formatting and
+coverage reproducibility use 0.16 only. Actions are pinned to commit SHAs.
+The optional external suite is a manual workflow input, separate from normal CI.
+
+`scripts/smoke.sh` uses only the built CLI and standard shell utilities.
+`python3 scripts/test_terminal.py` is an optional integration test tool: it opens
+isolated PTYs for both profiles, sends Ctrl+Q and Ctrl+C, and verifies original
+termios attributes, cursor visibility and alternate-screen exit. It does not
+modify the user's terminal. Hard kills, power loss and fatal OS signals are not
+restoration guarantees. Python/curl are development tools, not zig80 dependencies.
+
+日本語: CIはLinux/macOSと0.16/0.17の組合せで実行します。外部CPUデータは手動オプションです。
+PTY検証は両ProfileのCtrl+Q/Ctrl+C終了後に端末設定・Cursor・代替画面の復元を確認します。
+通常のzig80実行にはPythonやcurlは不要です。
