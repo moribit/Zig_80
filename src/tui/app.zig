@@ -8,7 +8,6 @@ const Layout = @import("layout.zig").Layout;
 const flags = @import("../cpu/flags.zig");
 const disassembler = @import("../disassembler/disassembler.zig");
 const editor_syntax = @import("editor/syntax.zig");
-const video = @import("../machine/video.zig");
 const trace = @import("../trace/trace.zig");
 const bus_waveform = @import("bus_waveform.zig");
 
@@ -115,7 +114,7 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
         if (show_code) {
             if (line_info) |info| {
                 frame.print(rect.x + 20, y, mergeStyle(base, auxiliary), "{X:0>4}", .{info.address});
-                const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
+                const decoded = disassembler.decodeBus(&state.machine.bus, info.address);
                 for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(rect.x + 27 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
             } else {
                 frame.writeText(rect.x + 20, y, "----", mergeStyle(base, auxiliary));
@@ -134,7 +133,7 @@ pub fn renderSource(state: *AppState, frame: *Frame, rect: Rect) void {
             }
         }
         if (!drew_overlay) if (line_info) |info| {
-            const decoded = disassembler.decode(&state.machine.bus.memory, info.address);
+            const decoded = disassembler.decodeBus(&state.machine.bus, info.address);
             if (suffix_x + decoded.size * 3 < rect.x + rect.width - 1) {
                 frame.writeText(suffix_x, y, "[", mergeStyle(base, auxiliary));
                 for (0..@min(@as(usize, decoded.size), 3)) |index| frame.print(suffix_x + 1 + index * 3, y, mergeStyle(base, auxiliary), "{X:0>2}", .{decoded.bytes[index]});
@@ -379,7 +378,7 @@ pub fn renderInstruction(state: *AppState, frame: *Frame, rect: Rect) void {
     const title = std.fmt.bufPrint(&title_buffer, " INSTRUCTION ({X:0>4}) ", .{pc}) catch " INSTRUCTION ";
     paneBox(state, frame, rect, title, false);
     if (rect.width < 18 or rect.height < 3) return;
-    const decoded = disassembler.decode(&state.machine.bus.memory, pc);
+    const decoded = disassembler.decodeBus(&state.machine.bus, pc);
     var y = rect.y + 1;
     frame.print(rect.x + 2, y, if (state.instructionHighlightActive()) changed else heading, "{s}", .{disassembler.text(&decoded)});
     y += 1;
@@ -540,7 +539,7 @@ fn renderGroupedEvents(state: *const AppState, frame: *Frame, rect: Rect, select
     paneBox(state, frame, rect, title, state.active_screen == .bus and state.bus_view == .events);
     frame.writeText(rect.x + 2, rect.y + 1, "PC", section_label);
     frame.print(rect.x + 13, rect.y + 1, .{ .bold = true }, "{X:0>4}", .{selected_event.pc});
-    const decoded = disassembler.decode(&state.machine.bus.memory, selected_event.pc);
+    const decoded = disassembler.decodeBus(&state.machine.bus, selected_event.pc);
     if (rect.height > 3) {
         frame.writeText(rect.x + 2, rect.y + 2, "MNEMONIC", section_label);
         writeTextClipped(frame, rect.x + 13, rect.x + rect.width - 1, rect.y + 2, disassembler.text(&decoded), heading);
@@ -623,7 +622,7 @@ pub fn renderDisplay(state: *const AppState, frame: *Frame, rect: Rect) void {
     if (rect.width < 18 or rect.height < 5) return;
     const scale: usize = @intFromEnum(state.display_scale);
     var status_buffer: [96]u8 = undefined;
-    const status = std.fmt.bufPrint(&status_buffer, "128 x 64  1bpp  Scale {d}x  Frame {d:0>6}  Changed {d} px  FPS {d}", .{ scale, state.display_frame, state.display_changed_pixels, state.display_fps }) catch "";
+    const status = std.fmt.bufPrint(&status_buffer, "{d} x 64  1bpp  Scale {d}x  Frame {d:0>6}  Changed {d} px  FPS {d}", .{ state.machine.displayWidth(), scale, state.display_frame, state.display_changed_pixels, state.display_fps }) catch "";
     writeTextClipped(frame, rect.x + 2, rect.x + rect.width - 1, rect.y + 1, status, auxiliary);
 
     const show_info = state.active_screen == .display and rect.width >= 54;
@@ -635,11 +634,11 @@ pub fn renderDisplay(state: *const AppState, frame: *Frame, rect: Rect) void {
     const pixels_per_cell_y: usize = if (scale == 1) 4 else if (scale == 2) 2 else 1;
     const cell_width: usize = if (scale == 4) 2 else 1;
     const cell_height: usize = if (scale == 4) 2 else 1;
-    const visible_x = @min(@as(usize, 128), canvas.width / cell_width * pixels_per_cell_x);
+    const visible_x = @min(state.machine.displayWidth(), canvas.width / cell_width * pixels_per_cell_x);
     const visible_y = @min(@as(usize, 64), canvas.height / cell_height * pixels_per_cell_y);
-    const origin_x = viewportOrigin(state.display_cursor_x, visible_x, 128);
+    const origin_x = viewportOrigin(state.display_cursor_x, visible_x, state.machine.displayWidth());
     const origin_y = viewportOrigin(state.display_cursor_y, visible_y, 64);
-    const total_cell_width = (128 + pixels_per_cell_x - 1) / pixels_per_cell_x * cell_width;
+    const total_cell_width = (state.machine.displayWidth() + pixels_per_cell_x - 1) / pixels_per_cell_x * cell_width;
     const total_cell_height = (64 + pixels_per_cell_y - 1) / pixels_per_cell_y * cell_height;
     const draw_x = canvas.x + (canvas.width -| @min(canvas.width, total_cell_width)) / 2;
     const draw_y = canvas.y + (canvas.height -| @min(canvas.height, total_cell_height)) / 2;
@@ -675,10 +674,10 @@ fn displayCell(state: *const AppState, x: usize, y: usize, width: usize, height:
     var dirty = false;
     var bits: u8 = 0;
     for (0..height) |dy| for (0..width) |dx| {
-        if (x + dx >= 128 or y + dy >= 64) continue;
-        const value = video.pixel(&state.machine.bus, @intCast(x + dx), @intCast(y + dy));
+        if (x + dx >= state.machine.displayWidth() or y + dy >= 64) continue;
+        const value = state.machine.displayPixel(x + dx, y + dy);
         on = on or value;
-        dirty = dirty or state.display_dirty[(y + dy) * 128 + x + dx];
+        dirty = dirty or state.display_dirty[(y + dy) * state.machine.displayWidth() + x + dx];
         if (value and width == 1 and height == 2) bits |= @as(u8, 1) << @intCast(dy);
     };
     const symbol: u21 = if (width == 1 and height == 2 and state.unicode_ui)
@@ -696,18 +695,18 @@ fn renderDisplayCursorInfo(state: *const AppState, frame: *Frame, rect: Rect) vo
     if (rect.width == 0) return;
     const x = state.display_cursor_x;
     const y = state.display_cursor_y;
-    const address: u16 = 0xC000 + @as(u16, y / 8) * 128 + x;
-    const value = video.pixel(&state.machine.bus, x, y);
+    const address: u16 = (if (state.machine.config.kind == .classic) @as(u16, 0xC000) else 0) + @as(u16, y / 8) * @as(u16, @intCast(state.machine.displayWidth())) + x;
+    const value = state.machine.displayPixel(x, y);
     frame.writeText(rect.x + 1, rect.y, "PIXEL", section_label);
     if (rect.height > 1) frame.print(rect.x + 1, rect.y + 1, .{ .bold = true }, "{d},{d}", .{ x, y });
-    if (rect.height > 3) frame.writeText(rect.x + 1, rect.y + 3, "VRAM ADDRESS", section_label);
+    if (rect.height > 3) frame.writeText(rect.x + 1, rect.y + 3, if (state.machine.config.kind == .classic) "VRAM ADDRESS" else "VRAM OFFSET", section_label);
     if (rect.height > 4) frame.print(rect.x + 1, rect.y + 4, .{ .bold = true }, "{X:0>4}", .{address});
     if (rect.height > 6) frame.print(rect.x + 1, rect.y + 6, section_label, "BIT  {d}", .{y % 8});
     if (rect.height > 7) frame.print(rect.x + 1, rect.y + 7, .{ .bold = true }, "VALUE  {d}", .{@intFromBool(value)});
     if (rect.height > 9) frame.writeText(rect.x + 1, rect.y + 9, "Arrows: inspect", auxiliary);
     if (rect.height > 11) frame.writeText(rect.x + 1, rect.y + 11, "WRITER", section_label);
     if (rect.height > 12) if (state.display_writer_pc) |pc| {
-        const decoded = disassembler.decode(&state.machine.bus.memory, pc);
+        const decoded = disassembler.decodeBus(&state.machine.bus, pc);
         frame.print(rect.x + 1, rect.y + 12, .{ .bold = true }, "#{d}  {X:0>4}", .{ state.display_writer_instruction orelse 0, pc });
         if (rect.height > 13) writeTextClipped(frame, rect.x + 1, rect.x + rect.width, rect.y + 13, disassembler.text(&decoded), heading);
     } else frame.writeText(rect.x + 1, rect.y + 12, "No VRAM write", auxiliary);

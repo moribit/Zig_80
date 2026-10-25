@@ -143,8 +143,8 @@ pub const AppState = struct {
     display_frame: u64 = 0,
     display_changed_pixels: u16 = 0,
     display_change_until_ms: i64 = 0,
-    display_snapshot: [1024]u8 = @splat(0),
-    display_dirty: [8192]bool = @splat(false),
+    display_snapshot: [2048]u8 = @splat(0),
+    display_dirty: [16384]bool = @splat(false),
     display_fps: u16 = 0,
     display_fps_window_ms: i64 = 0,
     display_fps_window_frames: u16 = 0,
@@ -274,7 +274,7 @@ pub const AppState = struct {
 
     pub fn step(self: *AppState) void {
         if (self.assembly == null) self.assemble();
-        if (self.assembly == null or self.machine.cpu.halted) return;
+        if (self.assembly == null or (self.machine.cpu.halted and !self.machine.canWakeFromHalt())) return;
         // Step is an explicit operation and is allowed to execute one instruction
         // after a cooperative Run/Continue limit was reached.
         self.stepOnce();
@@ -282,15 +282,16 @@ pub const AppState = struct {
     }
 
     fn stepOnce(self: *AppState) void {
+        const instruction_before = self.machine.cpu.instruction_index;
         const first_new_sequence = self.machine.bus.trace_sequence;
         const result = self.debug_session.step(&self.machine) catch |err| {
             self.execution_state = .faulted;
             self.setStatus("Execution fault: {s}", .{@errorName(err)});
             return;
         };
-        self.executed_instructions +|= 1;
-        if (self.debug_session.previous) |before| if (self.debug_session.current) |after| {
-            const instruction_index = self.machine.cpu.instruction_index -% 1;
+        self.executed_instructions = self.machine.cpu.instruction_index;
+        if (self.machine.cpu.instruction_index != instruction_before) if (self.debug_session.previous) |before| if (self.debug_session.current) |after| {
+            const instruction_index = instruction_before;
             self.instruction_snapshots[instruction_index % self.instruction_snapshots.len] = .{ .instruction_index = instruction_index, .before = before, .after = after };
         };
         self.register_highlight_until_ms = self.ui_now_ms + 1200;
@@ -314,7 +315,7 @@ pub const AppState = struct {
             self.showToast(.breakpoint, "Watchpoint #{d}", .{watchpoint});
             return;
         }
-        if (result.halted) {
+        if (result.halted and !self.machine.canWakeFromHalt()) {
             self.execution_state = .halted;
             self.setStatus("HALT at PC=0x{X:0>4}", .{result.pc_after});
             self.showToast(.halted, "Halted at 0x{X:0>4}", .{result.pc_after});
@@ -976,9 +977,9 @@ pub const AppState = struct {
                 .up => self.display_cursor_y -|= 1,
                 .down => self.display_cursor_y = @min(self.display_cursor_y +| 1, 63),
                 .left => self.display_cursor_x -|= 1,
-                .right => self.display_cursor_x = @min(self.display_cursor_x +| 1, 127),
+                .right => self.display_cursor_x = @min(self.display_cursor_x +| 1, @as(u8, @intCast(self.machine.displayWidth() - 1))),
                 .home => self.display_cursor_x = 0,
-                .end => self.display_cursor_x = 127,
+                .end => self.display_cursor_x = @intCast(self.machine.displayWidth() - 1),
                 .page_up => self.display_cursor_y -|= 8,
                 .page_down => self.display_cursor_y = @min(self.display_cursor_y +| 8, 63),
             },
@@ -1048,7 +1049,9 @@ pub const AppState = struct {
     }
 
     fn resetDisplayTracking(self: *AppState) void {
-        @memcpy(&self.display_snapshot, self.machine.bus.memory[0xC000..0xC400]);
+        @memset(&self.display_snapshot, 0);
+        const bytes = self.machine.displayBytes();
+        @memcpy(self.display_snapshot[0..bytes.len], bytes);
         @memset(&self.display_dirty, false);
         self.display_changed_pixels = 0;
         self.display_frame = 0;
@@ -1063,8 +1066,7 @@ pub const AppState = struct {
     fn updateDisplayTracking(self: *AppState) void {
         var changed: u16 = 0;
         var began_change = false;
-        for (0..self.display_snapshot.len) |byte_index| {
-            const value = self.machine.bus.memory[0xC000 + byte_index];
+        for (self.machine.displayBytes(), 0..) |value, byte_index| {
             const difference = value ^ self.display_snapshot[byte_index];
             if (difference == 0) continue;
             if (!began_change) {
@@ -1072,9 +1074,9 @@ pub const AppState = struct {
                 began_change = true;
             }
             for (0..8) |bit| if (difference & (@as(u8, 1) << @intCast(bit)) != 0) {
-                const x = byte_index % 128;
-                const y = byte_index / 128 * 8 + bit;
-                self.display_dirty[y * 128 + x] = true;
+                const x = byte_index % self.machine.displayWidth();
+                const y = byte_index / self.machine.displayWidth() * 8 + bit;
+                self.display_dirty[y * self.machine.displayWidth() + x] = true;
                 changed +|= 1;
             };
             self.display_snapshot[byte_index] = value;
@@ -1088,7 +1090,9 @@ pub const AppState = struct {
             while (trace_index > 0) {
                 trace_index -= 1;
                 const event = self.trace.get(trace_index) orelse continue;
-                if (event.kind != .memory_write or event.address < 0xC000 or event.address >= 0xC400) continue;
+                if (self.machine.config.kind == .classic) {
+                    if (event.kind != .memory_write or event.address < 0xC000 or event.address >= 0xC400) continue;
+                } else if (event.kind != .io_write or @as(u8, @truncate(event.address)) != self.machine.config.ports.display_data) continue;
                 self.display_writer_pc = event.pc;
                 self.display_writer_instruction = event.instruction_index;
                 break;

@@ -32,6 +32,10 @@ zig80 --help
 
 The script builds in ReleaseFast mode and installs to `$HOME/.local/bin`. Add that directory to your PATH if needed. Use `./scripts/install.sh --prefix /custom/path` to install to `/custom/path/bin`, or set `ZIG=/path/to/zig` to select the compiler. Re-running the script updates the installed binary.
 
+## Handheld virtual target
+
+Use `--profile handheld` with `run` or `tui` for the provisional banked machine and 256×64 display. `run --export-frame FILE` writes PBM; `--snapshot FILE` exports versioned CPU/memory/display/trace/input data. See [handheld development](docs/handheld/overview.md) for samples and the provisional port map. Classic remains the default.
+
 ## Terminal UI
 
 Open the dependency-free terminal frontend with an optional assembly source:

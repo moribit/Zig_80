@@ -9,6 +9,9 @@ pub const PortDevice = struct {
 pub const Bus = struct {
     memory: [65536]u8 = @splat(0),
     port_device: ?PortDevice = null,
+    kind: @import("profile.zig").Kind = .classic,
+    banks: @import("banking.zig").Banks = .{},
+    devices: @import("handheld.zig").Devices = .{},
     trace_sink: ?trace.TraceSink = null,
     debug_trace_sink: ?trace.TraceSink = null,
     trace_sequence: u64 = 0,
@@ -25,13 +28,13 @@ pub const Bus = struct {
     }
 
     pub fn readOpcode(self: *Bus, address: u16) u8 {
-        const value = self.memory[address];
+        const value = self.read8(address);
         self.record(.opcode_fetch, address, value, .{ .m1 = true, .mreq = true, .rd = true });
         return value;
     }
 
     pub fn readOperand8(self: *Bus, address: u16) u8 {
-        const value = self.memory[address];
+        const value = self.read8(address);
         self.record(.operand_read, address, value, .{ .mreq = true, .rd = true });
         return value;
     }
@@ -42,15 +45,15 @@ pub const Bus = struct {
 
     pub fn read8(self: *const Bus, address: u16) u8 {
         // Read-only callers are inspection APIs and intentionally do not trace.
-        return self.memory[address];
+        return if (self.kind == .handheld) self.banks.read(address) else self.memory[address];
     }
     pub fn readData8(self: *Bus, address: u16) u8 {
-        const value = self.memory[address];
+        const value = self.read8(address);
         self.record(.memory_read, address, value, .{ .mreq = true, .rd = true });
         return value;
     }
     pub fn write8(self: *Bus, address: u16, value: u8) void {
-        self.memory[address] = value;
+        if (self.kind == .handheld) self.banks.write(address, value) else self.memory[address] = value;
         self.record(.memory_write, address, value, .{ .mreq = true, .wr = true });
     }
     pub fn read16(self: *const Bus, address: u16) u16 {
@@ -62,13 +65,24 @@ pub const Bus = struct {
         self.write8(address +% 1, @truncate(value >> 8));
     }
     pub fn input(self: *Bus, port: u16) u8 {
-        const value = if (self.port_device) |device| device.read(device.context, port) else 0xff;
+        const value = if (self.port_device) |device| device.read(device.context, port) else if (self.kind == .handheld) self.readHandheldPort(@truncate(port)) else 0xff;
         self.record(.io_read, port, value, .{ .iorq = true, .rd = true });
         return value;
     }
     pub fn output(self: *Bus, port: u16, value: u8) void {
         if (self.port_device) |device| device.write(device.context, port, value);
+        if (self.kind == .handheld and self.port_device == null) {
+            const low: u8 = @truncate(port);
+            const ports = self.devices.config.ports;
+            if (low == ports.rom_bank) self.banks.map(1, .{ .kind = .rom, .bank = value }) catch {} else if (low == ports.ram_bank) self.banks.map(2, .{ .kind = .ram, .bank = value }) catch {} else self.devices.write(low, value);
+        }
         self.record(.io_write, port, value, .{ .iorq = true, .wr = true });
+    }
+    fn readHandheldPort(self: *Bus, port: u8) u8 {
+        const ports = self.devices.config.ports;
+        if (port == ports.rom_bank) return self.banks.slots[1].bank;
+        if (port == ports.ram_bank) return self.banks.slots[2].bank;
+        return self.devices.read(port);
     }
     pub fn acknowledgeInterrupt(self: *Bus, value: u8) void {
         self.record(.interrupt_ack, 0, value, .{ .m1 = true, .iorq = true, .int = true });

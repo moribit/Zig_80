@@ -80,3 +80,18 @@ failure with file, line and column information.
 CLI/TUIのinclude経路、未保存バッファ、2パス間の入力キャッシュ、相対分岐の16bitラップを
 整備しました。表示と実行は既存の境界を維持し、AppState全体の作り直しは行っていません。
 複数診断の回復処理は未実装で、最初のエラーで停止します。
+
+## Phase 3 record
+
+96 tests pass on Zig 0.16.0. Classic tests remain green. Handheld adds configurable
+profile/ports/clock, static ROM/RAM mapping, an independent 256×64 framebuffer and
+controller, input-change IRQ, deterministic timer/frame phases, HALT wakeup and
+six headless-verified assembly samples. TUI Display retains scales/grid/inspection
+with dynamic width and uses the same Machine.step as CLI/headless/debugger.
+PBM and schema-v1 JSON export are verified, including numeric byte arrays and
+identical replay producing byte-identical snapshots. No physical transport exists.
+CPU snapshot/trace export is a comparison foundation, not a snapshot restore API.
+
+日本語: Phase 3 は96テスト成功。Classicを維持し、Bank・VFD・Timer・Input IRQ・
+同一CoreのTUI/Headless実行・6サンプル・再現可能な検査出力を追加しました。
+PortとMemory構成は暫定仕様です。実機接続・Snapshot復元は実装していません。

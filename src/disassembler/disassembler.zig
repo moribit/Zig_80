@@ -4,17 +4,26 @@ const instruction = @import("../cpu/instruction.zig");
 pub const Decoded = struct { address: u16, size: u8, bytes: [4]u8 = @splat(0), text: [48]u8 = undefined, text_len: usize = 0 };
 
 pub fn decode(data: []const u8, address: u16) Decoded {
-    const i: usize = address;
+    return decodeAt(data, address, address);
+}
+
+pub fn decodeBus(bus: *const @import("../machine/bus.zig").Bus, address: u16) Decoded {
+    var bytes: [4]u8 = undefined;
+    for (0..4) |i| bytes[i] = bus.read8(address +% @as(u16, @intCast(i)));
+    return decodeAt(&bytes, 0, address);
+}
+
+fn decodeAt(data: []const u8, i: usize, address: u16) Decoded {
     const op = byte(data, i);
     var d = Decoded{ .address = address, .size = 1, .bytes = .{ op, 0, 0, 0 } };
     if (@import("../cpu/extended_metadata.zig").lookup(0, op)) |definition| {
-        if (!definition.legacy) return decodeExtended(data, address, definition);
+        if (!definition.legacy) return decodeExtended(data, i, address, definition);
     }
     if (op == 0xed or op == 0xdd or op == 0xfd) {
         if (op != 0xed and byte(data, i + 1) == 0xcb) {
-            if (@import("../cpu/extended_metadata.zig").lookupIndexedCb(op, byte(data, i + 3))) |definition| return decodeExtended(data, address, definition);
+            if (@import("../cpu/extended_metadata.zig").lookupIndexedCb(op, byte(data, i + 3))) |definition| return decodeExtended(data, i, address, definition);
         }
-        if (@import("../cpu/extended_metadata.zig").lookup(op, byte(data, i + 1))) |definition| return decodeExtended(data, address, definition);
+        if (@import("../cpu/extended_metadata.zig").lookup(op, byte(data, i + 1))) |definition| return decodeExtended(data, i, address, definition);
     }
     const w = struct {
         fn set(x: *Decoded, comptime fmt: []const u8, args: anytype) void {
@@ -145,9 +154,9 @@ pub fn decode(data: []const u8, address: u16) Decoded {
     return d;
 }
 
-fn decodeExtended(data: []const u8, address: u16, definition: @import("../cpu/extended_metadata.zig").Definition) Decoded {
+fn decodeExtended(data: []const u8, offset: usize, address: u16, definition: @import("../cpu/extended_metadata.zig").Definition) Decoded {
     var decoded: Decoded = .{ .address = address, .size = definition.size() };
-    for (0..decoded.size) |i| decoded.bytes[i] = byte(data, @as(usize, address) + i);
+    for (0..decoded.size) |i| decoded.bytes[i] = byte(data, offset + i);
     var operand: usize = if (definition.prefix == 0) 1 else 2;
     var p: usize = 0;
     while (p < definition.pattern.len) {

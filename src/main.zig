@@ -4,23 +4,25 @@ const assembler = @import("assembler/assembler.zig");
 const diagnostics = @import("assembler/diagnostics.zig");
 const disassembler = @import("disassembler/disassembler.zig");
 const Machine = @import("machine/machine.zig").Machine;
-const video = @import("machine/video.zig");
 const debugger = @import("debugger/debugger.zig");
 const TuiState = @import("tui/state.zig").AppState;
 const tui_event_loop = @import("tui/event_loop.zig");
 const machine_input = @import("machine/input.zig");
+const machine_profile = @import("machine/profile.zig");
+const machine_snapshot = @import("machine/snapshot.zig");
+const trace = @import("trace/trace.zig");
 
 const usage =
     \\Zig_80 - integrated Z80 development environment
     \\
     \\Usage:
     \\  zig80 asm <source.asm> -o <output.bin> [--symbols FILE] [--source-map FILE] [--listing FILE]
-    \\  zig80 run <program.bin> [--max-instructions N] [--max-cycles N] [--input-script FILE] [--screen]
+    \\  zig80 run <program.bin> [--profile classic|handheld] [--clock-hz N] [--max-instructions N] [--max-cycles N] [--input-script FILE] [--screen] [--export-frame FILE] [--snapshot FILE] [--rom-bank N FILE]
     \\  zig80 debug <program.bin>
     \\  zig80 disasm <program.bin>
     \\  zig80 test <program.bin>
     \\  zig80 explain <source.asm>
-    \\  zig80 tui [source.asm]
+    \\  zig80 tui [source.asm] [--profile classic|handheld] [--clock-hz N]
     \\  zig80 --help
     \\
 ;
@@ -49,18 +51,22 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn tuiCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, out: *Io.Writer, errout: *Io.Writer, environ: *std.process.Environ.Map) !void {
-    if (args.len > 1) {
-        try errout.writeAll("usage: zig80 tui [source.asm]\n");
-        return error.InvalidArguments;
+    var config: machine_profile.Config = .{};
+    var path: ?[]const u8 = null;
+    var index: usize = 0;
+    while (index < args.len) : (index += 1) {
+        if (try parseMachineOption(args, &index, &config)) continue;
+        if (path != null or std.mem.startsWith(u8, args[index], "--")) return error.InvalidArguments;
+        path = args[index];
     }
     if (!try Io.File.stdin().isTty(io) or !try Io.File.stdout().isTty(io)) {
         try errout.writeAll("error: `zig80 tui` requires an interactive stdin and stdout TTY\n");
         try errout.flush();
         std.process.exit(1);
     }
-    const path: ?[]const u8 = if (args.len == 1) args[0] else null;
     const source = if (path) |value| try Io.Dir.cwd().readFileAlloc(io, value, allocator, .limited(1024 * 1024)) else "";
     var state = try TuiState.init(allocator, path, source);
+    state.machine = try Machine.init(config);
     state.assembly_io = io;
     defer state.deinit();
     state.attachTrace();
@@ -157,9 +163,24 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
     var max_cycles: u64 = 10_000_000;
     var screen = false;
     var input_events: []machine_input.Event = &.{};
+    var config: machine_profile.Config = .{};
+    var frame_path: ?[]const u8 = null;
+    var snapshot_path: ?[]const u8 = null;
+    var rom_paths: [4]?[]const u8 = @splat(null);
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--screen")) screen = true else if (std.mem.eql(u8, args[i], "--max-instructions") and i + 1 < args.len) {
+        if (try parseMachineOption(args, &i, &config)) continue;
+        if (std.mem.eql(u8, args[i], "--rom-bank") and i + 2 < args.len) {
+            i += 1;
+            const bank = try std.fmt.parseInt(u8, args[i], 10);
+            if (bank >= rom_paths.len) return error.InvalidBank;
+            i += 1;
+            rom_paths[bank] = args[i];
+        } else if ((std.mem.eql(u8, args[i], "--export-frame") or std.mem.eql(u8, args[i], "--snapshot")) and i + 1 < args.len) {
+            const is_frame = std.mem.eql(u8, args[i], "--export-frame");
+            i += 1;
+            if (is_frame) frame_path = args[i] else snapshot_path = args[i];
+        } else if (std.mem.eql(u8, args[i], "--screen")) screen = true else if (std.mem.eql(u8, args[i], "--max-instructions") and i + 1 < args.len) {
             i += 1;
             max_instructions = try std.fmt.parseInt(usize, args[i], 10);
         } else if (std.mem.eql(u8, args[i], "--max-cycles") and i + 1 < args.len) {
@@ -175,28 +196,62 @@ fn runCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, ou
             };
         } else return error.InvalidArguments;
     }
-    var machine = Machine{};
+    var machine = try Machine.init(config);
     try machine.load(data);
+    for (rom_paths, 0..) |maybe_path, bank| if (maybe_path) |path| {
+        const bytes = try Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(0x4000));
+        try machine.loadRomBank(@intCast(bank), bytes);
+    };
+    var captured: trace.TraceBuffer = .{};
+    if (snapshot_path != null) machine.bus.trace_sink = captured.sink();
     var count: usize = 0;
     var cycles: u64 = 0;
     var reason: []const u8 = "instruction limit";
     var replay = machine_input.Replay{ .events = input_events };
     while (count < max_instructions and cycles < max_cycles) {
         machine.setInput(replay.advance(count).value);
-        const step = machine.cpu.step(&machine.bus) catch |e| {
+        const step = machine.step() catch |e| {
             try out.print("unknown opcode 0x{X:0>2} at PC=0x{X:0>4}\n", .{ machine.cpu.last_unknown_opcode, machine.cpu.last_unknown_pc });
             return e;
         };
-        count += 1;
+        count = @intCast(machine.cpu.instruction_index);
         cycles += step.t_states;
-        if (step.halted) {
+        if (step.halted and !machine.canWakeFromHalt()) {
             reason = "HALT";
             break;
         }
     }
     if (cycles >= max_cycles) reason = "cycle limit";
     try out.print("stopped: {s}; instructions={d}, T-states={d}, PC=0x{X:0>4}\n", .{ reason, count, cycles, machine.cpu.registers.pc });
-    if (screen) try video.render(&machine.bus, out);
+    if (screen) try machine.renderDisplay(out);
+    if (frame_path) |path| {
+        const file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
+        var buffer: [4096]u8 = undefined;
+        var writer = file.writer(io, &buffer);
+        try machine.writeDisplayPbm(&writer.interface);
+        try writer.interface.flush();
+    }
+    if (snapshot_path) |path| {
+        const file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
+        var buffer: [4096]u8 = undefined;
+        var writer = file.writer(io, &buffer);
+        try machine_snapshot.write(&machine, input_events, &captured, &writer.interface);
+        try writer.interface.flush();
+    }
+}
+
+fn parseMachineOption(args: []const []const u8, index: *usize, config: *machine_profile.Config) !bool {
+    const option = args[index.*];
+    if (!std.mem.eql(u8, option, "--profile") and !std.mem.eql(u8, option, "--clock-hz")) return false;
+    if (index.* + 1 >= args.len) return error.InvalidArguments;
+    index.* += 1;
+    if (std.mem.eql(u8, option, "--profile")) {
+        config.kind = std.meta.stringToEnum(machine_profile.Kind, args[index.*]) orelse return error.InvalidMachineProfile;
+    } else config.clock_hz = try std.fmt.parseInt(u32, args[index.*], 10);
+    try config.validate();
+    return true;
 }
 
 fn disasmCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, out: *Io.Writer) !void {
@@ -228,7 +283,7 @@ fn testCommand(io: Io, allocator: std.mem.Allocator, args: []const []const u8, o
     var machine = Machine{};
     try machine.load(data);
     var n: usize = 0;
-    while (!machine.cpu.halted and n < 100_000) : (n += 1) _ = try machine.cpu.step(&machine.bus);
+    while (!machine.cpu.halted and n < 100_000) : (n += 1) _ = try machine.step();
     if (!machine.cpu.halted) {
         try out.print("FAIL {s}: did not HALT\n", .{args[0]});
         return error.TestFailed;

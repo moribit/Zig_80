@@ -35,7 +35,7 @@ pub const DebugSession = struct {
         self.watch_trace.clear();
         self.last_watchpoint = null;
         self.previous = CpuSnapshot.capture(machine);
-        const result = try machine.cpu.step(&machine.bus);
+        const result = try machine.step();
         self.current = CpuSnapshot.capture(machine);
         for (0..self.watch_trace.len) |index| if (self.watch_trace.get(index)) |event| {
             if (self.watchpoints.match(event)) |watchpoint| {
