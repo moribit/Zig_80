@@ -93,6 +93,13 @@ pub fn parseScript(allocator: std.mem.Allocator, text: []const u8) ![]Event {
 }
 
 pub fn parseScriptLocated(allocator: std.mem.Allocator, text: []const u8, diagnostic: *ScriptDiagnostic) ![]Event {
+    return parseScriptImpl(allocator, text, diagnostic) catch |err| {
+        diagnostic.err = err;
+        return err;
+    };
+}
+
+fn parseScriptImpl(allocator: std.mem.Allocator, text: []const u8, diagnostic: *ScriptDiagnostic) ![]Event {
     diagnostic.* = .{};
     var events: std.ArrayList(Event) = .empty;
     errdefer events.deinit(allocator);
@@ -103,7 +110,6 @@ pub fn parseScriptLocated(allocator: std.mem.Allocator, text: []const u8, diagno
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0 or line[0] == '#') continue;
         diagnostic.* = .{ .line = line_number, .column = @intFromPtr(line.ptr) - @intFromPtr(raw.ptr) + 1 };
-        errdefer |err| diagnostic.err = err;
         var words = std.mem.tokenizeAny(u8, line, " \t");
         const at = std.fmt.parseInt(u64, words.next() orelse return error.InvalidInputEvent, 10) catch return error.InvalidInputTimestamp;
         const action_text = words.next() orelse return error.InvalidInputEvent;

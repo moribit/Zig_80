@@ -29,9 +29,10 @@ pub const Config = struct {
     pub fn validate(self: Config) !void {
         if (self.clock_hz == 0 or self.frame_hz == 0 or self.frame_hz > self.clock_hz or self.timer_period == 0 or self.rom_banks < 2 or self.rom_banks > 4 or self.ram_banks < 2 or self.ram_banks > 4) return error.InvalidMachineConfig;
         const std = @import("std");
-        const fields = std.meta.fields(Ports);
-        inline for (fields, 0..) |field, i| inline for (fields[0..i]) |previous| {
-            if (@field(self.ports, field.name) == @field(self.ports, previous.name)) return error.DuplicatePort;
+        const info = @typeInfo(Ports).@"struct";
+        const names = comptime if (@hasField(@TypeOf(info), "field_names")) info.field_names else std.meta.fieldNames(Ports);
+        inline for (names, 0..) |field, i| inline for (names[0..i]) |previous| {
+            if (@field(self.ports, field) == @field(self.ports, previous)) return error.DuplicatePort;
         };
     }
 };
