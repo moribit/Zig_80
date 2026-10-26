@@ -151,10 +151,12 @@ class DeployTests(unittest.TestCase):
             result = run(port, OUT / "hello.bin", "--wait-return")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(b"Application returned to loader", result.stdout)
+            # Linux rejects tcgetattr after the fixture closes the PTY master.
+            # Check restoration first; execution counts are written on fixture exit.
+            self.assertEqual(termios.tcgetattr(slave), before)
             mock.terminate()
             mock.communicate(timeout=5)
             self.assertIn("exec_entries=2", state.read_text())
-            self.assertEqual(termios.tcgetattr(slave), before)
 
     def test_interactive_game_launch_and_escape_return(self):
         with device() as (port, _, _, state, _, mock):
