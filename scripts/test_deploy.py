@@ -63,7 +63,7 @@ class DeployTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         OUT.mkdir(parents=True, exist_ok=True)
-        for name in ("hello", "memory_test", "serial_echo", "return_to_loader"):
+        for name in ("hello", "memory_test", "serial_echo", "return_to_loader", "orbital_rings"):
             result = subprocess.run([BINARY, "asm", f"examples/pc8001/{name}.asm", "-o", str(OUT / f"{name}.bin")], capture_output=True)
             assert result.returncode == 0, result.stderr
         (OUT / "one-kib.bin").write_bytes(b"\xc9" + bytes(i & 255 for i in range(1023)))
@@ -140,6 +140,21 @@ class DeployTests(unittest.TestCase):
                 if "--no-exec" in extra or "--verify-only" in extra:
                     self.assertNotIn(b"EXEC acknowledged", result.stdout)
                 self.assertEqual(termios.tcgetattr(slave), before)
+
+    def test_graphics_demo_returns_and_allows_the_next_deployment(self):
+        with device() as (port, slave, before, state, _, mock):
+            result = run(port, OUT / "orbital_rings.bin", "--wait-return", "--timeout", "30000", timeout=40)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b"RAM CRC16 verified", result.stdout)
+            self.assertIn(b"Application returned to loader; A=52", result.stdout)
+            self.assertEqual(termios.tcgetattr(slave), before)
+            result = run(port, OUT / "hello.bin", "--wait-return")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b"Application returned to loader", result.stdout)
+            mock.terminate()
+            mock.communicate(timeout=5)
+            self.assertIn("exec_entries=2", state.read_text())
+            self.assertEqual(termios.tcgetattr(slave), before)
 
     def test_binary_00_ff_and_application_owned_uart(self):
         with device("stage0") as (port, _, _, _, _, _):

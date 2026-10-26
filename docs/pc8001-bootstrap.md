@@ -267,6 +267,11 @@ PCは常駐ローダー待ちのまま保持します。再度USRを呼ぶ必要
 これは常駐を保持してアプリを差し替え・実行・復帰できた実測です。任意アプリや未実施サンプルの動作保証とは区別します。
 回帰テストを含むZig 118件成功、既存Deploy PTY 12件も通過しました。
 
+続いて [ORBITAL RINGS](pc8001-demos.md) の582 Bを同じ常駐へ転送し、CRC A9DB一致、EXEC ACK、
+A=52hでの復帰を確認しました。ユーザーがリングのアニメーションと終了表示も確認済みです。
+Picoやブートストラップを書き換えず、画面デモを追加・実行できました。
+この追加後はZig119件、Deploy PTY13件です。詳しい実測・メモリ使用はデモ文書を参照してください。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and

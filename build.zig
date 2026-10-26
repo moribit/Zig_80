@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
         "examples/pc8001/hello.asm",                    "examples/pc8001/memory_test.asm",      "examples/pc8001/return_to_loader.asm",
         "examples/pc8001/serial_echo.asm",              "examples/pc8001/serial/common.inc",    "examples/pc8001/serial/tx_test.asm",
         "examples/pc8001/serial/rx_test.asm",           "examples/pc8001/serial/echo_test.asm", "examples/pc8001/serial/pattern_test.asm",
-        "examples/pc8001/serial/binary_ready_test.asm",
+        "examples/pc8001/serial/binary_ready_test.asm", "examples/pc8001/orbital_rings.asm",
     }) |path| test_run.addFileInput(b.path(path));
     b.step("test", "Run all tests").dependOn(&test_run.step);
 

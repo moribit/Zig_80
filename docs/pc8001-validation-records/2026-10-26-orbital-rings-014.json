@@ -1,0 +1,42 @@
+{
+  "date_local": "2026-10-26",
+  "scope": "Physical PC-8001 bounded semigraphics animation and resident return",
+  "firmware": "pico2-pc8001/0.1.4",
+  "source": "examples/pc8001/orbital_rings.asm",
+  "image_bytes": 582,
+  "image_sha256": "e0f9aab46cbc20fb86cc1a38b1347bb742ed0fbec354170f375174644bf6d7fb",
+  "image_crc16_hex": "A9DB",
+  "load_hex": "D000",
+  "entry_hex": "D000",
+  "code_last_hex": "D245",
+  "state_range_hex": "D4E0-D4E5",
+  "attribute_backup_range_hex": "D500-D77F",
+  "canvas_pixels": [
+    64,
+    64
+  ],
+  "frames": 128,
+  "raw_log_sha256": "8c150a43eec84399eb386533fff650e8488905f651784f5168e28ab678b03f4f",
+  "uart_bytes_hex": "a55a01800010000100d000d8f16b0040ffed0000850011fda55a01800110000100d000d800000140ffed00008700ff84a55a01800210000100d000d840000140ffed00008500f590a55a01800310000100d000d880000140ffed00008500eaf6a55a01800410000100d000d8c0000140ffed000085002574a55a01800510000100d000d800010140ffed0000850019f9a55a01800610000100d000d840010140ffed0000870013eda55a01800710000100d000d880010140ffed000087000c8ba55a01800810000100d000d8c0010140ffed00008700acf8a55a01800910000100d000d800020140ffed0000850095d5a55a01800a10000100d000d840020140ffed00008500fda7a55a01800b10000100d000d846020140ffed000087001142a55a01800c10000100d000d8dba90340ffed000087000ed9a55a01800d10000100d000d800d00340ffed0000870004b9a55a01820d10000100d000d852000140ffed000087002e11",
+  "all_uart_flags_zero": true,
+  "reply_frames": 15,
+  "all_reply_frame_crcs_independently_verified": true,
+  "return_A_hex": "52",
+  "exec_ack_last_to_return_first_us": 14276658,
+  "timing_note": "Includes target return setup and first return-byte UART time; not pure CPU animation time",
+  "completed": {
+    "deploy": "complete",
+    "elapsed_us": 51406446,
+    "retries": 0
+  },
+  "operator_confirmed_animation": "two moving rings",
+  "operator_confirmed_final_text": "COMPLETE - LOADER READY",
+  "pico_after": {
+    "tx_enabled": false,
+    "watchdog_reboot": false,
+    "watchdog_timeout_reboot": false,
+    "uptime_us": 2755243016,
+    "max_loop_us": 277
+  },
+  "result": "PASS"
+}

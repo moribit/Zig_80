@@ -161,6 +161,9 @@ zig80 deploy zig-out/pc8001/serial_echo.bin --target pc8001 --port /dev/cu.usbmo
 
 ### CLIオプション
 
+グラフィックの有限時間デモは [ORBITAL RINGS](pc8001-demos.md) を参照してください。
+現在の表示設定を保持し、終了時に属性を復元して常駐へ戻ります。
+
 `--target pc8001` と `--port PATH` は必須。候補が複数でも自動選択しません。
 既定load/entryはD000（entryの省略時はload）。`--load-address`/`--entry`は0x形式または10進。
 `--no-exec` は転送・検証まで、`--verify-only` は既存RAM比較のみ。
