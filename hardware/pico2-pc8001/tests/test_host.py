@@ -74,6 +74,14 @@ class HostTests(unittest.TestCase):
             self.assertTrue(state.read_text().splitlines()[-1].startswith("tx=0"))
             self.assertEqual(termios.tcgetattr(slave), before)
 
+    def test_usb_probe_never_enables_uart_and_restores_terminal(self):
+        with device() as (path, slave, before, state, work, _):
+            result = subprocess.run(command(path, "probe", "--duration-ms", "350", "--log", str(pathlib.Path(work)/"probe.jsonl")), capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(b"USB probe complete", result.stdout)
+            self.assertNotIn("tx=1", state.read_text())
+            self.assertEqual(termios.tcgetattr(slave), before)
+
     def test_pattern_quality_and_identity_are_explicitly_mock(self):
         with device() as (path, _, _, _, _, _):
             result = subprocess.run(command(path, "test", "--enable-tx", "--voltage-confirmed"), capture_output=True, timeout=6)

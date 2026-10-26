@@ -135,6 +135,19 @@ PCを停止させたままの追加試験でも、約20.6秒後（sequence 132�
 DeployのJSONLにはusb_request/usb_reply/usb_errorの時刻・sequence・部分受信数を追加しました。
 安全条件、リース期限、UARTプロトコルは変更せず、切り分け完了前の再転送は行いません。
 
+続くTX/RX両方無効の試験でも、USB STATS sequence 51への応答が500 ms以内に来ずTimeoutとなりました。
+要求開始から約8秒で、試験前後のMac IOUSBHostDevice registry IDも変わっていました。
+これはUSB再認識の観測であり、Picoのwatchdog再起動・電源・アダプター・OS等のどれが原因かは未確定です。
+Macの接続ツリーに中間ハブは表示されず、ユーザーはUSB-C変換アダプターを使用しています。
+新しい `serial probe` はTX/RXを停止してUSB状態取得を繰り返し、UARTペイロードを送らずJSONLへ記録します。
+
+```sh
+zig80 serial probe --port /dev/cu.usbmodemXXXX --duration-ms 30000 --timeout-ms 500 --log usb-probe.jsonl
+```
+
+この診断は送信許可を受け付けず、既存のリース期限を緩めません。PTYで無送信とtermios復元を検証しています。
+次の実機切り分けはPC電源OFF後にS10信号線を切り離し、同じアダプターでPico単体のUSB probeを行う段階です。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and

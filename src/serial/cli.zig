@@ -174,7 +174,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         return;
     }
     if (args.len == 0 or std.mem.eql(u8, args[0], "--help")) {
-        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. For the PC-8001 loader use zig80 deploy --help.\n");
+        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|probe|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nprobe polls USB status with TX and RX disabled; no UART bytes are sent.\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. For the PC-8001 loader use zig80 deploy --help.\n");
         return;
     }
     if (std.mem.eql(u8, args[0], "list")) {
@@ -183,10 +183,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         return;
     }
     const is_info = std.mem.eql(u8, args[0], "info");
+    const is_probe = std.mem.eql(u8, args[0], "probe");
     const is_monitor = std.mem.eql(u8, args[0], "monitor");
     const is_send = std.mem.eql(u8, args[0], "send");
     const is_test = std.mem.eql(u8, args[0], "test");
-    if (!is_info and !is_monitor and !is_send and !is_test) return error.InvalidSerialCommand;
+    if (!is_info and !is_probe and !is_monitor and !is_send and !is_test) return error.InvalidSerialCommand;
     var options: Options = .{};
     var index: usize = 1;
     while (index < args.len) : (index += 1) {
@@ -223,7 +224,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
 
     var signals = Signals.init();
     defer signals.deinit();
-    var session: Session = .{ .port = try Port.open(io, path), .out = out, .raw = options.raw, .quiet = is_test, .timeout_us = options.timeout_us, .log = if (log_file != null) &log_writer.interface else null };
+    var session: Session = .{ .port = try Port.open(io, path), .out = out, .raw = options.raw, .quiet = is_test, .queue_uart = is_probe, .timeout_us = options.timeout_us, .log = if (log_file != null) &log_writer.interface else null };
     defer session.close();
     const identity = try session.request(wire.info, "");
     if (!std.mem.startsWith(u8, identity.data[1..identity.len], "pico2-pc8001/")) return error.WrongSerialDevice;
@@ -236,6 +237,30 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     const data = configuration.data[1..configuration.len];
     if (is_info) {
         try out.print("firmware={s} port={s}\nUART={d} {d}N{d} inverted={d} RX=GP{d} TX=GP{d} tx_enabled={d}\nclock_hz={d} divider_q8={d} (actual baud=clock_hz*256/(divider_q8*8))\n", .{ identity.data[1..identity.len], path, wire.read32(data), data[4], data[6], data[7], data[8], data[9], (data[10] >> 1) & 1, wire.read32(data[12..]), wire.read32(data[16..]) });
+        return;
+    }
+    if (is_probe) {
+        if (data[10] & 3 != 0) return error.UnexpectedEnabledUart;
+        try out.print("USB probe: {s}; TX/RX disabled, no UART payload.\n", .{identity.data[1..identity.len]});
+        try out.flush();
+        const started = serial_port.nowUs(io);
+        var replies: usize = 0;
+        var maximum_us: u64 = 0;
+        while (serial_port.nowUs(io) - started < options.duration_us) {
+            const sent = serial_port.nowUs(io);
+            const answer = try session.request(wire.stats, "");
+            if (answer.len != 93) return error.InvalidStatisticsReply;
+            maximum_us = @max(maximum_us, serial_port.nowUs(io) - sent);
+            replies += 1;
+            _ = session.next(@min(started + options.duration_us, serial_port.nowUs(io) + 150_000)) catch |err| switch (err) {
+                error.Timeout => continue,
+                else => return err,
+            };
+            return error.UnexpectedReply;
+        }
+        const final_config = try session.request(wire.config, "");
+        if (final_config.len != 21 or final_config.data[11] & 3 != 0) return error.UnexpectedEnabledUart;
+        try out.print("USB probe complete: replies={d} max_reply_us={d} elapsed_us={d}; TX/RX disabled\n", .{ replies, maximum_us, serial_port.nowUs(io) - started });
         return;
     }
     _ = try session.request(wire.rx_start, "");
