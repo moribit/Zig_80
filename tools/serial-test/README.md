@@ -75,4 +75,6 @@ It is not a physical line-rate or PC-8001 success certificate.
 
 For hardware precautions and the next physical steps, see
 [PC-8001 serial validation](../../docs/pc8001-serial-validation.md).
-There is no Serial Loader, ROM upload, reset, execution or ESP32 transport command.
+The separate [deploy command](../../docs/pc8001-serial-loader.md) now supplies a
+PC-side Serial Loader; the Pico USB bridge protocol remains unchanged. ROM upload,
+hardware reset and ESP32 transport are not implemented.

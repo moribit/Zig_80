@@ -2,10 +2,13 @@ const std = @import("std");
 const assembler = @import("../assembler/assembler.zig");
 
 fn hex(writer: *std.Io.Writer, bytes: []const u8) !void {
+    return writeHex(writer, bytes, 0xd000);
+}
+pub fn writeHex(writer: *std.Io.Writer, bytes: []const u8, base: u16) !void {
     var offset: usize = 0;
     while (offset < bytes.len) {
         const count = @min(16, bytes.len - offset);
-        const address: u16 = @intCast(0xd000 + offset);
+        const address: u16 = @intCast(@as(usize, base) + offset);
         var sum: u8 = @as(u8, @intCast(count)) +% @as(u8, @truncate(address >> 8)) +% @as(u8, @truncate(address));
         try writer.print(":{X:0>2}{X:0>4}00", .{ count, address });
         for (bytes[offset..][0..count]) |byte| {
@@ -37,7 +40,7 @@ fn basic(writer: *std.Io.Writer, bytes: []const u8) !void {
 
 pub fn build(io: std.Io, allocator: std.mem.Allocator, directory: []const u8, out: *std.Io.Writer) !void {
     try std.Io.Dir.cwd().createDirPath(io, directory);
-    for ([_][]const u8{ "tx_test", "rx_test", "echo_test", "pattern_test" }) |name| {
+    for ([_][]const u8{ "tx_test", "rx_test", "echo_test", "pattern_test", "binary_ready_test" }) |name| {
         const source = try std.fmt.allocPrint(allocator, "examples/pc8001/serial/{s}.asm", .{name});
         defer allocator.free(source);
         var failure: assembler.FailureLocation = .{};

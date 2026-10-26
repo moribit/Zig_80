@@ -1,0 +1,146 @@
+{
+  "date_local": "2026-10-26",
+  "timezone": "Asia/Tokyo",
+  "scope": "Physical strings only; loader and binary deploy not measured",
+  "firmware": "pico2-pc8001/0.1.0",
+  "uf2_sha256": "2154e3e67c88de1dd8ad9df3baf3d41e4fd1772ab501a94d443acd70b684a5b3",
+  "wiring_note": "TX/RX wiring corrected before successful H and HELLO tests",
+  "operator_reported_voltage_v": 5.0,
+  "voltage_limitation": "Reported before wiring correction; loaded high/low and Hi-Z idle waveform not measured",
+  "pc_to_host": {
+    "standalone_byte_hex": "48",
+    "string": "HELLO FROM PC-8001",
+    "string_payload_bytes": 18,
+    "payload_event_flags_all_zero": true,
+    "events_including_pretest_errors": [
+      {
+        "pico_us": 853763708,
+        "byte": 0,
+        "flags": 1
+      },
+      {
+        "pico_us": 853780720,
+        "byte": 0,
+        "flags": 2
+      },
+      {
+        "pico_us": 2177990341,
+        "byte": 72,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520769967,
+        "byte": 72,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520803282,
+        "byte": 69,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520836592,
+        "byte": 76,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520869958,
+        "byte": 76,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520903301,
+        "byte": 79,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520936635,
+        "byte": 32,
+        "flags": 0
+      },
+      {
+        "pico_us": 2520969948,
+        "byte": 70,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521003260,
+        "byte": 82,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521036603,
+        "byte": 79,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521069957,
+        "byte": 77,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521103291,
+        "byte": 32,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521136615,
+        "byte": 80,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521169929,
+        "byte": 67,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521203284,
+        "byte": 45,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521236598,
+        "byte": 56,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521269972,
+        "byte": 48,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521303295,
+        "byte": 48,
+        "flags": 0
+      },
+      {
+        "pico_us": 2521336609,
+        "byte": 49,
+        "flags": 0
+      }
+    ]
+  },
+  "host_to_pc": {
+    "uart_payload_hex": "0d0a48454c4c4f2046524f4d205049434f20320d0a",
+    "pico_tx_completed": 21,
+    "host_received_bytes": 0,
+    "operator_confirmed_display": "HELLO FROM PICO 2",
+    "operator_reported_stars_before_and_after": true,
+    "pc_fe_pe_oe_counts": null
+  },
+  "pico_loopback": {
+    "first_inverted": "USB disconnected after 180 valid bytes; cause unknown, operator reported no intervention",
+    "normal": {
+      "received": 256,
+      "mismatches": 0,
+      "reported_errors": 0
+    },
+    "inverted_retry": {
+      "received": 256,
+      "mismatches": 0,
+      "reported_errors": 0
+    }
+  },
+  "pc_binary_roundtrip_validated": false,
+  "loader_deploy_validated": false
+}

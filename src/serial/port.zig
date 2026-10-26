@@ -62,7 +62,11 @@ pub const Port = struct {
     }
     pub fn close(self: *Port) void {
         self.dtr(false);
-        std.posix.tcsetattr(self.file.handle, .NOW, self.original) catch {};
+        // ENXIO is normal after a physical USB detach on macOS. Avoid std's
+        // unexpectedErrno stack dump during best-effort cleanup of a dead TTY.
+        // TCSAFLUSH discards bridge bytes and avoids Darwin's automatic PENDIN
+        // flag when restoring ICANON after SIGINT during the startup interval.
+        while (std.posix.errno(std.posix.system.tcsetattr(self.file.handle, .FLUSH, &self.original)) == .INTR) {}
         self.file.close(self.io);
     }
     pub fn read(self: *Port, buffer: []u8, timeout_ms: i32) !usize {

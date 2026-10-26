@@ -19,7 +19,7 @@ const Options = struct {
     enable_tx: bool = false,
     voltage_confirmed: bool = false,
 };
-const Session = struct {
+pub const Session = struct {
     port: Port,
     parser: wire.Parser = .{},
     sequence: u16 = 0,
@@ -37,11 +37,30 @@ const Session = struct {
     gaps: u64 = 0,
     armed: bool = false,
     timeout_us: u64,
+    queue_uart: bool = false,
+    strict_uart: bool = false,
+    uart: [2048]u8 = undefined,
+    uart_head: usize = 0,
+    uart_len: usize = 0,
 
-    fn close(self: *Session) void {
-        var buffer: [wire.max_frame]u8 = undefined;
-        const data = wire.encode(&buffer, wire.disarm, self.sequence +% 1, "") catch unreachable;
-        _ = self.port.writeSome(data) catch 0;
+    pub fn close(self: *Session) void {
+        // Bounded cleanup independent of the SIGINT flag: stop both directions
+        // and consume shutdown ACKs before restoring termios. Detached USB may
+        // reject every operation; DTR and the firmware lease remain fallbacks.
+        const deadline = serial_port.nowUs(self.port.io) + 100_000;
+        var first: [wire.max_frame]u8 = undefined;
+        var second: [wire.max_frame]u8 = undefined;
+        self.port.write(wire.encode(&first, wire.disarm, self.sequence +% 1, "") catch unreachable, deadline) catch {};
+        self.port.write(wire.encode(&second, wire.rx_stop, self.sequence +% 2, "") catch unreachable, deadline) catch {};
+        while (serial_port.nowUs(self.port.io) < deadline) {
+            while (self.offset < self.available) {
+                _ = self.parser.feed(self.buffer[self.offset]) catch null;
+                self.offset += 1;
+            }
+            self.available = self.port.read(&self.buffer, 20) catch break;
+            self.offset = 0;
+            if (self.available == 0) break;
+        }
         self.port.close();
     }
     fn events(self: *Session, frame: *const wire.Frame) !void {
@@ -51,6 +70,18 @@ const Session = struct {
             const timestamp = wire.read64(frame.data[i..]);
             const flags = frame.data[i + 8];
             const byte = frame.data[i + 9];
+            if (self.log) |log| try log.print("{{\"pico_us\":{d},\"byte\":{d},\"flags\":{d}}}\n", .{ timestamp, byte, flags });
+            if (self.queue_uart) {
+                if (flags != 0 and self.strict_uart) {
+                    if (self.log) |log| try log.flush();
+                    return error.UartFault;
+                }
+                if (flags == 0) {
+                    if (self.uart_len == self.uart.len) return error.UartQueueOverflow;
+                    self.uart[(self.uart_head + self.uart_len) % self.uart.len] = byte;
+                    self.uart_len += 1;
+                }
+            }
             if (flags & 2 != 0) self.gaps += 1 else {
                 self.rx_count += 1;
                 if (self.captured < self.received.len) {
@@ -61,11 +92,11 @@ const Session = struct {
                 if (self.raw) try self.out.writeByte(byte);
             }
             if (!self.raw and !self.quiet) try self.out.print("pico_us={d} RX {X:0>2} '{c}' flags={d}\n", .{ timestamp, byte, if (std.ascii.isPrint(byte)) byte else @as(u8, '.'), flags });
-            if (self.log) |log| try log.print("{{\"pico_us\":{d},\"byte\":{d},\"flags\":{d}}}\n", .{ timestamp, byte, flags });
         }
         try self.out.flush();
+        if (self.log) |log| try log.flush();
     }
-    fn next(self: *Session, deadline: u64) !wire.Frame {
+    pub fn next(self: *Session, deadline: u64) !wire.Frame {
         while (true) {
             if (interrupted.load(.monotonic)) return error.Interrupted;
             while (self.offset < self.available) {
@@ -78,7 +109,7 @@ const Session = struct {
             self.offset = 0;
         }
     }
-    fn request(self: *Session, command: u8, payload: []const u8) !wire.Frame {
+    pub fn request(self: *Session, command: u8, payload: []const u8) !wire.Frame {
         self.sequence +%= 1;
         var encoded: [wire.max_frame]u8 = undefined;
         const frame = try wire.encode(&encoded, command, self.sequence, payload);
@@ -98,6 +129,28 @@ const Session = struct {
             return answer;
         }
     }
+    pub fn pump(self: *Session, deadline: u64) !void {
+        const incoming = try self.next(deadline);
+        if (incoming.kind != wire.event) return error.UnexpectedReply;
+        try self.events(&incoming);
+    }
+};
+
+pub const Signals = struct {
+    old_int: std.posix.Sigaction,
+    old_term: std.posix.Sigaction,
+    pub fn init() Signals {
+        interrupted.store(false, .monotonic);
+        var self: Signals = undefined;
+        const action: std.posix.Sigaction = .{ .handler = .{ .handler = onSignal }, .mask = std.posix.sigemptyset(), .flags = 0 };
+        std.posix.sigaction(.INT, &action, &self.old_int);
+        std.posix.sigaction(.TERM, &action, &self.old_term);
+        return self;
+    }
+    pub fn deinit(self: *Signals) void {
+        std.posix.sigaction(.INT, &self.old_int, null);
+        std.posix.sigaction(.TERM, &self.old_term, null);
+    }
 };
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, out: *std.Io.Writer, errout: *std.Io.Writer) !void {
@@ -107,7 +160,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         return;
     }
     if (args.len == 0 or std.mem.eql(u8, args[0], "--help")) {
-        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. No deploy/loader is implemented.\n");
+        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. For the PC-8001 loader use zig80 deploy --help.\n");
         return;
     }
     if (std.mem.eql(u8, args[0], "list")) {
@@ -154,16 +207,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         file.close(io);
     };
 
-    interrupted.store(false, .monotonic);
-    var old_int: std.posix.Sigaction = undefined;
-    var old_term: std.posix.Sigaction = undefined;
-    const action: std.posix.Sigaction = .{ .handler = .{ .handler = onSignal }, .mask = std.posix.sigemptyset(), .flags = 0 };
-    std.posix.sigaction(.INT, &action, &old_int);
-    std.posix.sigaction(.TERM, &action, &old_term);
-    defer {
-        std.posix.sigaction(.INT, &old_int, null);
-        std.posix.sigaction(.TERM, &old_term, null);
-    }
+    var signals = Signals.init();
+    defer signals.deinit();
     var session: Session = .{ .port = try Port.open(io, path), .out = out, .raw = options.raw, .quiet = is_test, .timeout_us = options.timeout_us, .log = if (log_file != null) &log_writer.interface else null };
     defer session.close();
     const identity = try session.request(wire.info, "");

@@ -1,0 +1,16 @@
+; Conservative CLEAR-reserved layout for original PC-8001 N-BASIC.
+APP_MIN equ 0xd000
+APP_END equ 0xd800
+STAGE1 equ 0xd800
+STAGE1_SIZE equ 1280
+STAGE0 equ 0xe400
+FRAME equ 0xe600
+PREVIOUS equ 0xe650
+REPLY equ 0xe6a0
+STACK_TOP equ 0xe800
+OLD_PORT equ 0xe800
+BASIC_SP equ 0xe802
+LAST_STATUS equ 0xe804
+LAST_FAULT equ 0xe805
+BOOT_RESULT equ 0xe806
+STATE equ 0xe820

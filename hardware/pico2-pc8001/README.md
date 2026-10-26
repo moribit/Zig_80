@@ -1,7 +1,9 @@
 # PC-8001 / Pico 2 serial validation
 
 Experimental, 300 baud, 8N1, inverted UART on GP0 (TX) / GP1 (RX).
-**No PC-8001 electrical measurements or physical communication have been performed.**
+**Physical strings have now passed in both directions; PC-8001 binary/loader deployment remains unverified.**
+TERM still shows `*` around host transmissions while TX is Hi-Z; the electrical cause
+has not been measured. See the dated [validation record](../../docs/pc8001-serial-validation.md).
 Disconnect all PC-8001 signal wires before the first firmware flash or Pico-only loopback.
 An inline 1 kΩ resistor is not a voltage converter. Never connect S10 pins 11/13/15
 to GPIO. See the [measurement and staged validation procedure](../../docs/pc8001-serial-validation.md)
@@ -36,7 +38,8 @@ ZIG=/path/to/zig-0.17.0/zig sh hardware/pico2-pc8001/test.sh
 Requires a native C compiler and Python 3. Runs the ASan/UBSan bridge tests,
 PIO instruction-subset simulation, the normal Zig suite, assembly artifact generation,
 and six real CLI ↔ PTY ↔ C protocol-core mock tests. It never opens a physical port.
-The PIO simulator does not establish pad voltages, oscillator accuracy, USB electrical
+The suite also builds the optional C bridge + existing Z80 loader fixture and runs
+eleven deploy PTY integration tests. The PIO simulator does not establish pad voltages, oscillator accuracy, USB electrical
 behavior, or communication with a real 8251.
 
 ## Explicit operations

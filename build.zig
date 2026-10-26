@@ -29,7 +29,29 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    b.step("test", "Run all tests").dependOn(&b.addRunArtifact(tests).step);
+    const test_run = b.addRunArtifact(tests);
+    // These suites assemble files at run time. Include them in the run cache key
+    // so an ASM-only edit cannot reuse an older successful test result.
+    for ([_][]const u8{
+        "examples/pc8001/loader/stage0.asm",            "examples/pc8001/loader/stage1.asm",
+        "examples/pc8001/loader/layout.inc",            "examples/pc8001/loader/uart.inc",
+        "examples/pc8001/loader/crc.inc",               "examples/pc8001/hello.asm",
+        "examples/pc8001/memory_test.asm",              "examples/pc8001/return_to_loader.asm",
+        "examples/pc8001/serial_echo.asm",              "examples/pc8001/serial/common.inc",
+        "examples/pc8001/serial/tx_test.asm",           "examples/pc8001/serial/rx_test.asm",
+        "examples/pc8001/serial/echo_test.asm",         "examples/pc8001/serial/pattern_test.asm",
+        "examples/pc8001/serial/binary_ready_test.asm",
+    }) |path| test_run.addFileInput(b.path(path));
+    b.step("test", "Run all tests").dependOn(&test_run.step);
+
+    const loader_mock = b.addExecutable(.{
+        .name = "zig80-loader-mock",
+        .root_module = b.createModule(.{ .root_source_file = b.path("src/loader_mock.zig"), .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    loader_mock.root_module.addIncludePath(b.path("hardware/pico2-pc8001/firmware"));
+    loader_mock.root_module.addCSourceFile(.{ .file = b.path("hardware/pico2-pc8001/firmware/bridge.c"), .flags = &.{"-std=c11"} });
+    loader_mock.root_module.addCSourceFile(.{ .file = b.path("hardware/pico2-pc8001/tests/loader_bridge.c"), .flags = &.{"-std=c11"} });
+    b.step("loader-mock", "Build native C bridge + existing Z80 loader integration fixture (no GPIO)").dependOn(&b.addInstallArtifact(loader_mock, .{}).step);
 
     const differential = b.addExecutable(.{
         .name = "zig80-differential",
