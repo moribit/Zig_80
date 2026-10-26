@@ -13,6 +13,17 @@ before connecting or enabling an output.
 
 ## Build (never flashes)
 
+Firmware 0.1.1 adds read-only USB HEALTH (command 11): uptime, main-loop count,
+largest observed loop interval, watchdog reboot and watchdog-timeout reboot flags.
+`zig80 serial health --port PATH` reads them with UART disabled. The flags are
+captured before watchdog initialization and survive USB open/close within a boot.
+`serial probe` records HEALTH once per second on 0.1.1. Boot Hi-Z, 250 ms watchdog,
+one-second TX lease, UART framing and USB framing are unchanged. This is diagnostic
+instrumentation, not a confirmed fix for the observed USB re-enumerations.
+
+日本語：0.1.1は起動経過時間・ループ間隔・watchdog再起動フラグの取得を追加した診断版です。
+USB切断原因を直した版とは扱いません。PC-8001の電源OFF・信号線切り離し後にのみ書き込みます。
+
 Install CMake, Ninja, an ARM bare-metal GCC toolchain and picotool. Pin the SDK:
 
 ```sh

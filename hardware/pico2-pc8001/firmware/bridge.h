@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION "0.1.0"
+#define BRIDGE_VERSION "0.1.1"
 #define BRIDGE_PAYLOAD 256u
 #define BRIDGE_FRAME_MAX 266u
 #define BRIDGE_QUEUE 512u
@@ -20,7 +20,8 @@ enum bridge_command {
   BR_SEND = 7,
   BR_STATS = 8,
   BR_KEEPALIVE = 9,
-  BR_INVERT = 10
+  BR_INVERT = 10,
+  BR_HEALTH = 11
 };
 enum bridge_status {
   BR_OK = 0,
@@ -59,6 +60,9 @@ typedef struct {
   bridge_event rx[BRIDGE_QUEUE];
   uint16_t rx_head, rx_len, tx_inflight;
   bridge_stats stats;
+  /* Diagnostic observations only; never alter the lease or GPIO policy. */
+  bool boot_watchdog, boot_watchdog_timeout;
+  uint64_t loop_count, max_loop_us;
   bool line_active, line_timeout_reported;
   uint64_t active_since;
 } bridge;

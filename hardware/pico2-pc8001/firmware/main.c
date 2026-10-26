@@ -124,9 +124,18 @@ int main(void) {
                                    .configure = configure,
                                    .identity = "pico2-pc8001/" BRIDGE_VERSION,
                                    .system_hz = clock_get_hz(clk_sys)});
+  device.boot_watchdog = watchdog_caused_reboot();
+  device.boot_watchdog_timeout = watchdog_enable_caused_reboot();
   watchdog_enable(250, false);
   tusb_init();
+  uint64_t previous_loop = time_us_64();
   for (;;) {
+    uint64_t current_loop = time_us_64();
+    uint64_t elapsed_loop = current_loop - previous_loop;
+    if (elapsed_loop > device.max_loop_us)
+      device.max_loop_us = elapsed_loop;
+    previous_loop = current_loop;
+    device.loop_count++;
     watchdog_update();
     tud_task();
     bridge_connected(&device, tud_cdc_connected());

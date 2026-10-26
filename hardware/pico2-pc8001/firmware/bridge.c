@@ -189,6 +189,14 @@ static void command(bridge *b, uint8_t cmd, uint16_t seq, const uint8_t *data,
       result_len = 92;
       break;
     }
+    case BR_HEALTH:
+      put64(result, now);
+      put64(result + 8, b->loop_count);
+      put64(result + 16, b->max_loop_us);
+      result[24] = b->boot_watchdog;
+      result[25] = b->boot_watchdog_timeout;
+      result_len = 26;
+      break;
     default:
       status = BR_BAD_COMMAND;
       break;

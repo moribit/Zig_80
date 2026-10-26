@@ -148,6 +148,17 @@ zig80 serial probe --port /dev/cu.usbmodemXXXX --duration-ms 30000 --timeout-ms 
 この診断は送信許可を受け付けず、既存のリース期限を緩めません。PTYで無送信とtermios復元を検証しています。
 次の実機切り分けはPC電源OFF後にS10信号線を切り離し、同じアダプターでPico単体のUSB probeを行う段階です。
 
+ユーザーがPC電源OFF・GP0/GP1の信号線切り離しを実施した後も、Pico単体のUSB probeで再現しました。
+0.1.0でSTATS sequence 155（試験開始から約25秒）の応答がTimeoutとなりました。
+PCローダーやUART信号を必要としない再現条件が得られましたが、根本原因は未確定です。
+診断版0.1.1はUSB HEALTH=11で uptime_us、loop_count、max_loop_us、watchdog_reboot、
+watchdog_timeout_rebootを返します。各整数は64-bit little endian、最後の2フラグは各1 B、status込み27 Bです。
+watchdogフラグは起動時にSDKのwatchdog_caused_reboot/watchdog_enable_caused_rebootから採取します。
+`serial health` と0.1.1の `serial probe` で観測できます。旧0.1.0のprobeは引き続きSTATSだけを使用します。
+安全制御やメインループ待機方式、watchdog/リース期限を変更していません。修正効果を主張する版ではありません。
+UF2ビルドとC ASan/UBSan、Zig117件、Deploy12件、メディア3件、PIO4件の自動検証を通過しました。
+診断版の書き込みとwatchdog実測は次の実機操作待ちです。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and

@@ -82,6 +82,15 @@ class HostTests(unittest.TestCase):
             self.assertNotIn("tx=1", state.read_text())
             self.assertEqual(termios.tcgetattr(slave), before)
 
+    def test_health_observation_never_enables_uart(self):
+        with device() as (path, slave, before, state, _, _):
+            result = subprocess.run(command(path, "health"), capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(b"uptime_us=", result.stdout)
+            self.assertIn(b"watchdog_timeout_reboot=0", result.stdout)
+            self.assertNotIn("tx=1", state.read_text())
+            self.assertEqual(termios.tcgetattr(slave), before)
+
     def test_pattern_quality_and_identity_are_explicitly_mock(self):
         with device() as (path, _, _, _, _, _):
             result = subprocess.run(command(path, "test", "--enable-tx", "--voltage-confirmed"), capture_output=True, timeout=6)

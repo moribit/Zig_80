@@ -11,6 +11,7 @@ pub const send: u8 = 7;
 pub const stats: u8 = 8;
 pub const keepalive: u8 = 9;
 pub const invert: u8 = 10;
+pub const health: u8 = 11;
 pub const event: u8 = 0x40;
 pub const confirmation = "VOLTAGES_CHECKED";
 

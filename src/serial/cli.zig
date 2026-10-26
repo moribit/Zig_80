@@ -6,6 +6,19 @@ var interrupted = std.atomic.Value(bool).init(false);
 fn onSignal(_: std.posix.SIG) callconv(.c) void {
     interrupted.store(true, .monotonic);
 }
+fn printHealth(out: *std.Io.Writer, answer: *const wire.Frame) !void {
+    if (answer.len != 27) return error.InvalidHealthReply;
+    try out.print("uptime_us={d} loop_count={d} max_loop_us={d} watchdog_reboot={d} watchdog_timeout_reboot={d}\n", .{ wire.read64(answer.data[1..]), wire.read64(answer.data[9..]), wire.read64(answer.data[17..]), answer.data[25], answer.data[26] });
+    try out.flush();
+}
+fn healthObservation(session: *Session) !void {
+    const answer = try session.request(wire.health, "");
+    try printHealth(session.out, &answer);
+    if (session.log) |log| {
+        try log.print("{{\"event\":\"pico_health\",\"host_us\":{d},\"uptime_us\":{d},\"loop_count\":{d},\"max_loop_us\":{d},\"watchdog_reboot\":{d},\"watchdog_timeout_reboot\":{d}}}\n", .{ serial_port.nowUs(session.port.io), wire.read64(answer.data[1..]), wire.read64(answer.data[9..]), wire.read64(answer.data[17..]), answer.data[25], answer.data[26] });
+        try log.flush();
+    }
+}
 
 const Options = struct {
     port: ?[]const u8 = null,
@@ -174,7 +187,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         return;
     }
     if (args.len == 0 or std.mem.eql(u8, args[0], "--help")) {
-        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|probe|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nprobe polls USB status with TX and RX disabled; no UART bytes are sent.\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. For the PC-8001 loader use zig80 deploy --help.\n");
+        try out.writeAll("zig80 serial list\nzig80 serial build-examples [--out-dir DIR]\nzig80 serial info|health|probe|monitor|send|test --port PATH [TEXT] [--file FILE] [--raw] [--log FILE] [--duration-ms N] [--timeout-ms N] [--normal]\nprobe polls USB status with TX and RX disabled; no UART bytes are sent.\nSending requires BOTH --enable-tx --voltage-confirmed; never enables itself after a test.\nAll USB traffic is framed; --raw extracts UART bytes only. For the PC-8001 loader use zig80 deploy --help.\n");
         return;
     }
     if (std.mem.eql(u8, args[0], "list")) {
@@ -182,12 +195,13 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         try listPorts(io, allocator, out);
         return;
     }
+    const is_health = std.mem.eql(u8, args[0], "health");
     const is_info = std.mem.eql(u8, args[0], "info");
     const is_probe = std.mem.eql(u8, args[0], "probe");
     const is_monitor = std.mem.eql(u8, args[0], "monitor");
     const is_send = std.mem.eql(u8, args[0], "send");
     const is_test = std.mem.eql(u8, args[0], "test");
-    if (!is_info and !is_probe and !is_monitor and !is_send and !is_test) return error.InvalidSerialCommand;
+    if (!is_info and !is_health and !is_probe and !is_monitor and !is_send and !is_test) return error.InvalidSerialCommand;
     var options: Options = .{};
     var index: usize = 1;
     while (index < args.len) : (index += 1) {
@@ -235,6 +249,10 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     const configuration = try session.request(wire.config, "");
     if (configuration.len != 21) return error.InvalidConfigurationReply;
     const data = configuration.data[1..configuration.len];
+    if (is_health) {
+        try healthObservation(&session);
+        return;
+    }
     if (is_info) {
         try out.print("firmware={s} port={s}\nUART={d} {d}N{d} inverted={d} RX=GP{d} TX=GP{d} tx_enabled={d}\nclock_hz={d} divider_q8={d} (actual baud=clock_hz*256/(divider_q8*8))\n", .{ identity.data[1..identity.len], path, wire.read32(data), data[4], data[6], data[7], data[8], data[9], (data[10] >> 1) & 1, wire.read32(data[12..]), wire.read32(data[16..]) });
         return;
@@ -244,9 +262,15 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         try out.print("USB probe: {s}; TX/RX disabled, no UART payload.\n", .{identity.data[1..identity.len]});
         try out.flush();
         const started = serial_port.nowUs(io);
+        const has_health = std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.1");
+        var next_health = started;
         var replies: usize = 0;
         var maximum_us: u64 = 0;
         while (serial_port.nowUs(io) - started < options.duration_us) {
+            if (has_health and serial_port.nowUs(io) >= next_health) {
+                try healthObservation(&session);
+                next_health = serial_port.nowUs(io) + 1_000_000;
+            }
             const sent = serial_port.nowUs(io);
             const answer = try session.request(wire.stats, "");
             if (answer.len != 93) return error.InvalidStatisticsReply;
