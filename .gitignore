@@ -3,6 +3,9 @@
 zig-cache/
 zig-out/
 
+# Native host integration-test imports
+__pycache__/
+
 # Optional local build/output directories
 build/
 

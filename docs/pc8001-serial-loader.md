@@ -185,6 +185,13 @@ DATA/EXEC ACK消失、古い復帰通知と新しいHALTアプリ、バージョ
 通常ビルドにCやPico SDKは追加しません。Cを使うfixtureは `zig build loader-mock` の任意テスト専用です。
 Pythonモックは加速実行であり、300bps波形や物理層の成功・速度を証明しません。
 
+実装コミット `37e156f08aea40a0763ff89bd47b4784aeeafd09` の
+[Linux/macOS × Zig 0.16/0.17 CI](https://github.com/moribit/Zig_80/actions/runs/40296312537) は全4ジョブ成功。
+0.17ジョブで従来PTY 6件、Deploy統合11件、C ASan/UBSan、PIO 4件も実行しています。
+Debug/ReleaseSafeの113テスト、ReleaseFastビルド、既存CLI/TUI検証を通過しました。
+実機のStage 0 DATA/POKEとCRC表示、PC 256byte往復、Stage 1導入、アプリ実行はユーザー操作待ちです。
+このCI結果を物理通信の成功として代用しません。
+
 | 転送 | UART byte数の例 | 300bps 8N1の理論最短 |
 | --- | --- | --- |
 | Stage 0手入力 | シリアル転送なし | 未測定（人の入力時間） |
