@@ -201,6 +201,28 @@ https://github.com/moribit/Zig_80/actions/runs/40327658556
 HEALTHでuptime 423,342,713 us、watchdog両フラグ0、max_loop_us=259を確認しました。
 これはPico単体の物理PIO試験です。PC-8001での256 B往復やローダー実行は引き続き未確認です。
 
+### PCへの再接続と連続フレーム試験
+
+0.1.3でPCに再接続した最初の試行はREADY未受信でした。ユーザーがTX/RXの取り違えを報告・修正しました。
+修正後、PCの100 B一致・DEFUSRを確認し、mini READY=37h、333 B＋SUM8転送、
+中継READY=5A30010005の実受信まで確認できました（中継READYまで11,859,108 us）。
+**miniから既存333 B中継コードへの導入・起動は実機で確認済み**です。
+続くT非実行試験では返送00–B8の185 Bは完全一致、次の期待B9に対し6Eh／framing flag=1を観測し中断しました。
+ログは `/tmp/zig80-mini-preflight-013-corrected.jsonl`。PCはBASICへ復帰し、ユーザー報告は
+E806=0、E805=255、E804=85h。E806は正常終了、保存statusのPE/OE/FEは0です。
+E805は受信失敗時だけ更新する領域なので、255を新しいエラーコードと解釈しません。
+PCの全送信byteがMacへ正しく届いたとは言えず、256 B往復は失敗のままです。
+
+実PIOソースを使うシミュレーションに、隙間なし1-stopフレーム、独立クロック±2%、
+4種類の非同期位相、両極性で00–FFを流す回帰テストを追加しました。
+変更前のRX 8-cycle方式では、相手のビット周期が1–2%短い16ケースが失敗しました。
+Pico TXはフレーム間に追加idleがあるため、従来の単体ループバックだけではこの条件を覆えていませんでした。
+0.1.4ではRXだけ16-cycle方式へ変更し、次フレーム開始待ちに余裕を設けます。
+RXの半ビット検査・データ/stop中央サンプルは維持、TX 8-cycle・300 baud・8N1・極性・USB形式・安全期限は維持します。
+40条件すべてで256 B一致、stop flag正常となり、元のPIOテストも通過しました。
+これは境界条件のソフトウェア再現と修正です。実機のB9位置のエラーとの因果関係や修正効果はまだ未確認です。
+CONFIGのdividerは互換性のためTX値のまま。150 MHz時はTX Q8=16,000,000、RX Q8=8,000,000です。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and

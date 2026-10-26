@@ -1,17 +1,19 @@
-; Eight PIO cycles per bit. Inversion is in PIO, not GPIO overrides.
+; RX: sixteen PIO cycles per bit; TX: eight. Inversion stays in PIO.
+; RX samples at 1.5, 2.5, ... 9.5 bit times and rearms before the
+; next frame even with a single stop bit and a slightly faster peer.
 ; RX pushes bits 30:23=data, bit31=logical stop (1=valid), all lower bits ignored.
 .program s10_rx_inverted
 .wrap_target
 start:
     wait 1 pin 0
-    nop [3]
+    nop [7]
     jmp pin valid_start
     jmp start
 valid_start:
-    set x, 7 [5]
+    set x, 7 [13]
 bits:
     in pins, 1
-    jmp x-- bits [6]
+    jmp x-- bits [14]
     in pins, 1
     mov isr, ~isr
     push noblock
@@ -22,12 +24,12 @@ bits:
 .wrap_target
 start:
     wait 0 pin 0
-    nop [3]
+    nop [7]
     jmp pin start
-    set x, 7 [5]
+    set x, 7 [13]
 bits:
     in pins, 1
-    jmp x-- bits [6]
+    jmp x-- bits [14]
     in pins, 1
     nop
     push noblock

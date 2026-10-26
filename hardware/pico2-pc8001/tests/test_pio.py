@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Instruction-subset simulation of the actual .pio source, NOT hardware proof."""
 import collections
+import math
 import pathlib
 import re
 import unittest
@@ -93,11 +94,27 @@ def waveform(data, inverted, bad_stop=False):
     for byte in data:
         bits = [0] + [(byte >> bit) & 1 for bit in range(8)] + [0 if bad_stop else 1]
         for bit in bits:
-            levels += [bit ^ inverted] * 8
+            levels += [bit ^ inverted] * 16
     return levels + [idle] * 80
 
 
 class PioTests(unittest.TestCase):
+    def test_back_to_back_frames_with_async_phase_and_clock_difference(self):
+        # The peer has an independent clock and exactly ONE stop bit. Unlike
+        # our TX loopback, it need not provide any additional idle cycles.
+        data = bytes(range(256))
+        symbols = [bit for byte in data for bit in [0, *[(byte >> i) & 1 for i in range(8)], 1]]
+        for inverted in (False, True):
+            for skew in (-0.02, -0.01, 0, 0.01, 0.02):
+                for phase in (16, 16.125, 16.5, 16.875):
+                    period = 16 * (1 + skew)
+                    end = phase + len(symbols) * period
+                    levels = [(symbols[int((t-phase)/period)] ^ inverted) if phase <= t < end else 1 ^ inverted for t in range(math.ceil(end)+80)]
+                    with self.subTest(inverted=inverted, skew=skew, phase=phase):
+                        words, _ = simulate("s10_rx_" + ("inverted" if inverted else "normal"), levels)
+                        self.assertEqual(bytes((word >> 23) & 255 for word in words), data)
+                        self.assertTrue(all(word >> 31 for word in words))
+
     def test_rx_all_bytes_and_continuous_frames_both_polarities(self):
         data = bytes(range(256))
         for inverted in (False, True):
@@ -111,6 +128,8 @@ class PioTests(unittest.TestCase):
         for inverted in (False, True):
             suffix = "inverted" if inverted else "normal"
             _, levels = simulate("s10_tx_" + suffix, [0], data, 1000)
+            # RX state machine now ticks twice as fast as TX.
+            levels = [level for level in levels for _ in range(2)]
             words, _ = simulate("s10_rx_" + suffix, levels)
             self.assertEqual(bytes((word >> 23) & 255 for word in words), data)
             self.assertTrue(all(word >> 31 for word in words))
@@ -119,7 +138,7 @@ class PioTests(unittest.TestCase):
         for inverted in (False, True):
             idle = 0 if inverted else 1
             name = "s10_rx_" + ("inverted" if inverted else "normal")
-            short = [idle] * 16 + [1 - idle] * 3 + [idle] * 16
+            short = [idle] * 16 + [1 - idle] * 6 + [idle] * 16
             words, _ = simulate(name, short)
             self.assertEqual(words, [])
             words, _ = simulate(name, waveform([0x55], inverted, bad_stop=True))
@@ -132,10 +151,12 @@ class PioTests(unittest.TestCase):
 
     def test_divider_error(self):
         for hz in (125_000_000, 150_000_000):
-            q8 = (hz * 256 + 1200) // 2400
-            self.assertLessEqual(q8, 0xffffff)
-            baud = hz * 256 / (q8 * 8)
-            self.assertLess(abs(baud - 300) / 300 * 1e6, 1)
+            for cycles in (8,16):
+                frequency = 300 * cycles
+                q8 = (hz * 256 + frequency // 2) // frequency
+                self.assertLessEqual(q8, 0xffffff)
+                baud = hz * 256 / (q8 * cycles)
+                self.assertLess(abs(baud - 300) / 300 * 1e6, 1)
 
 
 if __name__ == "__main__":

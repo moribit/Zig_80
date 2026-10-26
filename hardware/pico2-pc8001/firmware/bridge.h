@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION "0.1.3"
+#define BRIDGE_VERSION "0.1.4"
 #define BRIDGE_PAYLOAD 256u
 #define BRIDGE_FRAME_MAX 266u
 #define BRIDGE_QUEUE 512u

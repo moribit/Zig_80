@@ -88,9 +88,11 @@ static void configure(void *unused, bool inverted) {
                        : s10_tx_normal_program_get_default_config(tx_offset);
   const uint32_t hz = clock_get_hz(clk_sys);
   const uint32_t divisor = (uint32_t)(((uint64_t)hz * 256 + 1200) / 2400);
+  const uint32_t rx_divisor = (uint32_t)(((uint64_t)hz * 256 + 2400) / 4800);
   hard_assert(divisor >= 256 && divisor <= 0xffffff);
-  sm_config_set_clkdiv_int_frac(&rx_config, (uint16_t)(divisor >> 8),
-                                (uint8_t)divisor);
+  hard_assert(rx_divisor >= 256 && rx_divisor <= 0xffffff);
+  sm_config_set_clkdiv_int_frac(&rx_config, (uint16_t)(rx_divisor >> 8),
+                                (uint8_t)rx_divisor);
   sm_config_set_clkdiv_int_frac(&tx_config, (uint16_t)(divisor >> 8),
                                 (uint8_t)divisor);
   sm_config_set_in_pins(&rx_config, RX_PIN);

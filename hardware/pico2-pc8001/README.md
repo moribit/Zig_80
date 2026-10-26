@@ -35,6 +35,16 @@ the 50 us delay. SDK-internal fault location remains unproven; physical stabilit
 of this fix must be measured separately from the native protocol tests.
 UF2 program metadata now derives its version from BRIDGE_VERSION as well.
 
+0.1.4 runs the RX state machine at 16 cycles per bit (4800 Hz at 300 baud),
+while TX stays at 8 cycles per bit (2400 Hz). RX samples at bit centers as before,
+but can rearm during a single stop bit before the next frame starts. A regression
+using 256 back-to-back bytes, both polarities, four asynchronous phases and peer
+bit periods from -2% to +2% failed on the old RX and passes on this version.
+The CONFIG divider field remains the TX divider for USB compatibility; at
+150 MHz its Q8 value is 16,000,000, and RX uses 8,000,000. Both remain 300 baud.
+The model is not an electrical measurement or proof that the observed PC-8001
+framing fault is resolved. Physical PC roundtrip validation is still required.
+
 日本語：0.1.1は起動経過時間・ループ間隔・watchdog再起動フラグの取得を追加した診断版です。
 USB切断原因を直した版とは扱いません。PC-8001の電源OFF・信号線切り離し後にのみ書き込みます。
 

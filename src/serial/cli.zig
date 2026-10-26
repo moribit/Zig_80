@@ -267,7 +267,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         try out.print("USB probe: {s}; TX/RX disabled, no UART payload.\n", .{identity.data[1..identity.len]});
         try out.flush();
         const started = serial_port.nowUs(io);
-        const has_health = std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.1") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.2") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.3");
+        const has_health = std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.1") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.2") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.3") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.4");
         var next_health = started;
         var replies: usize = 0;
         var maximum_us: u64 = 0;
