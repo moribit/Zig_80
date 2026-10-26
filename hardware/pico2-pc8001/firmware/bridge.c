@@ -195,7 +195,8 @@ static void command(bridge *b, uint8_t cmd, uint16_t seq, const uint8_t *data,
       put64(result + 16, b->max_loop_us);
       result[24] = b->boot_watchdog;
       result[25] = b->boot_watchdog_timeout;
-      result_len = 26;
+      put32(result + 26, b->boot_phase);
+      result_len = 30;
       break;
     default:
       status = BR_BAD_COMMAND;

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION "0.1.1"
+#define BRIDGE_VERSION "0.1.2"
 #define BRIDGE_PAYLOAD 256u
 #define BRIDGE_FRAME_MAX 266u
 #define BRIDGE_QUEUE 512u
@@ -62,6 +62,7 @@ typedef struct {
   bridge_stats stats;
   /* Diagnostic observations only; never alter the lease or GPIO policy. */
   bool boot_watchdog, boot_watchdog_timeout;
+  uint32_t boot_phase;
   uint64_t loop_count, max_loop_us;
   bool line_active, line_timeout_reported;
   uint64_t active_since;

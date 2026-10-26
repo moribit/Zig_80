@@ -21,6 +21,12 @@ captured before watchdog initialization and survive USB open/close within a boot
 one-second TX lease, UART framing and USB framing are unchanged. This is diagnostic
 instrumentation, not a confirmed fix for the observed USB re-enumerations.
 
+0.1.2 additionally retains the main-loop phase in watchdog scratch[0] and reports
+it after watchdog reboot. HEALTH appends a little-endian uint32 phase (31 bytes
+including status); hosts still accept the 0.1.1 reply. Values are 0=unknown/init,
+1=USB task, 2=safety/tick, 3=USB commands, 4=RX, 5=TX, 6=USB flush, 7=sleep.
+SDK scratch[4..7], all deadlines and the loop wait implementation are unchanged.
+
 日本語：0.1.1は起動経過時間・ループ間隔・watchdog再起動フラグの取得を追加した診断版です。
 USB切断原因を直した版とは扱いません。PC-8001の電源OFF・信号線切り離し後にのみ書き込みます。
 

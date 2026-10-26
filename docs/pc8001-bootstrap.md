@@ -159,6 +159,19 @@ watchdogフラグは起動時にSDKのwatchdog_caused_reboot/watchdog_enable_cau
 UF2ビルドとC ASan/UBSan、Zig117件、Deploy12件、メディア3件、PIO4件の自動検証を通過しました。
 診断版の書き込みとwatchdog実測は次の実機操作待ちです。
 
+0.1.1をPicoへpicotoolで書き込み・フラッシュ照合しました（UF2 SHA-256
+`9d01b1099aeecbd5472360b009041109d6e0e56129315a021021d42e09ac7759`）。
+最初の30秒probeは179応答、最大応答1,611 us、正常終了しました。
+続くHEALTHではuptimeが約70秒から約14秒へ減り、watchdog_reboot=1／watchdog_timeout_reboot=1を観測しました。
+その後の2分probeも約52秒でTimeout（STATS sequence 368）となり、再度watchdog再起動を確認しました。
+PC信号線なし・UART無効でも発生する、実測によるwatchdog期限超過です。停止する関数までは未確定です。
+
+0.1.2は停止直前の処理区間をwatchdog scratch[0]に記録し、次回起動のHEALTHへboot_phaseを追加します。
+SDKが利用するscratch[4..7]やタイムアウト値を変更しません。
+HEALTHの既存26 Bの後にuint32 LEのphaseを追加し、status込み31 Bです（0.1.1の27 Bもホストは読めます）。
+phase: 0不明/初期化、1USB task、2接続/安全/tick、3USBコマンド、4RX、5TX、6USB flush、7sleep。
+0.1.2はUF2生成と自動検証まで。まだ実機へ書き込んでおらず、修正効果を主張する版ではありません。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and

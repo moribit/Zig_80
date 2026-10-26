@@ -56,12 +56,14 @@ int main(void) {
   f.b.boot_watchdog_timeout = true;
   f.b.loop_count = 0x12345678;
   f.b.max_loop_us = 0xabcdef;
+  f.b.boot_phase = 7;
   assert(command(&f, BR_HEALTH, NULL, 0, 0x11223344) == BR_OK);
-  assert(f.len == 37 && !f.tx && !f.rx && f.enabled == 0);
+  assert(f.len == 41 && !f.tx && !f.rx && f.enabled == 0);
   assert(f.reply[9] == 0x44 && f.reply[12] == 0x11);
   assert(f.reply[17] == 0x78 && f.reply[20] == 0x12);
   assert(f.reply[25] == 0xef && f.reply[27] == 0xab);
   assert(f.reply[33] == 1 && f.reply[34] == 1);
+  assert(f.reply[35] == 7 && f.reply[36] == 0 && f.reply[38] == 0);
   bridge_connected(&f.b, false);
   bridge_connected(&f.b, true);
   assert(f.b.boot_watchdog_timeout && f.b.loop_count == 0x12345678);

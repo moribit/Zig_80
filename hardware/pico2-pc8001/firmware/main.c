@@ -2,6 +2,7 @@
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
 #include "hardware/watchdog.h"
+#include "hardware/structs/watchdog.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "uart.pio.h"
@@ -16,6 +17,12 @@ static bool tx_on, rx_on, configured;
 static const pio_program_t *rx_program, *tx_program;
 static uint rx_offset, tx_offset;
 static uint64_t last_completion;
+// SDK boot-vector/timeout markers use scratch[4..7]. Our scratch[0] records
+// the last main-loop phase across a watchdog reset, without changing policy.
+#define PHASE_MAGIC 0x5a380100u
+static inline void phase(uint32_t value) {
+  watchdog_hw->scratch[0] = PHASE_MAGIC | value;
+}
 
 static void hi_z(uint pin) {
   gpio_set_oeover(pin, GPIO_OVERRIDE_LOW);
@@ -126,6 +133,10 @@ int main(void) {
                                    .system_hz = clock_get_hz(clk_sys)});
   device.boot_watchdog = watchdog_caused_reboot();
   device.boot_watchdog_timeout = watchdog_enable_caused_reboot();
+  uint32_t previous_phase = watchdog_hw->scratch[0];
+  if (device.boot_watchdog && (previous_phase & 0xffffff00u) == PHASE_MAGIC)
+    device.boot_phase = previous_phase & 0xffu;
+  phase(0);
   watchdog_enable(250, false);
   tusb_init();
   uint64_t previous_loop = time_us_64();
@@ -137,16 +148,20 @@ int main(void) {
     previous_loop = current_loop;
     device.loop_count++;
     watchdog_update();
+    phase(1);
     tud_task();
+    phase(2);
     bridge_connected(&device, tud_cdc_connected());
     uint64_t now = time_us_64();
     bridge_tick(&device, now);
     unsigned budget = 512;
+    phase(3);
     while (tud_cdc_available() && budget--) {
       uint8_t byte;
       if (tud_cdc_read(&byte, 1) == 1)
         bridge_feed(&device, byte, now);
     }
+    phase(4);
     if (rx_on) {
       const uint32_t overrun = 1u << (PIO_FDEBUG_RXSTALL_LSB + RX_SM);
       if (uart_pio->fdebug & overrun) {
@@ -162,6 +177,7 @@ int main(void) {
       bool active = gpio_get(RX_PIN) == device.inverted;
       bridge_line_level(&device, active, now);
     }
+    phase(5);
     if (tx_on) {
       while (!pio_sm_is_rx_fifo_empty(uart_pio, TX_SM)) {
         (void)pio_sm_get(uart_pio, TX_SM);
@@ -178,8 +194,10 @@ int main(void) {
       if (device.tx_inflight && now - last_completion > 250000)
         bridge_uart_timeout(&device);
     }
+    phase(6);
     (void)bridge_flush_rx(&device);
     tud_cdc_write_flush();
+    phase(7);
     sleep_us(50);
   }
 }

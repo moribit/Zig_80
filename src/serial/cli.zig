@@ -7,15 +7,20 @@ fn onSignal(_: std.posix.SIG) callconv(.c) void {
     interrupted.store(true, .monotonic);
 }
 fn printHealth(out: *std.Io.Writer, answer: *const wire.Frame) !void {
-    if (answer.len != 27) return error.InvalidHealthReply;
+    if (answer.len != 27 and answer.len != 31) return error.InvalidHealthReply;
     try out.print("uptime_us={d} loop_count={d} max_loop_us={d} watchdog_reboot={d} watchdog_timeout_reboot={d}\n", .{ wire.read64(answer.data[1..]), wire.read64(answer.data[9..]), wire.read64(answer.data[17..]), answer.data[25], answer.data[26] });
     try out.flush();
+    if (answer.len == 31) {
+        try out.print("previous_watchdog_phase={d} (0=unknown/init,1=USB task,2=safety/tick,3=USB commands,4=RX,5=TX,6=USB flush,7=sleep)\n", .{wire.read32(answer.data[27..])});
+        try out.flush();
+    }
 }
 fn healthObservation(session: *Session) !void {
     const answer = try session.request(wire.health, "");
     try printHealth(session.out, &answer);
     if (session.log) |log| {
         try log.print("{{\"event\":\"pico_health\",\"host_us\":{d},\"uptime_us\":{d},\"loop_count\":{d},\"max_loop_us\":{d},\"watchdog_reboot\":{d},\"watchdog_timeout_reboot\":{d}}}\n", .{ serial_port.nowUs(session.port.io), wire.read64(answer.data[1..]), wire.read64(answer.data[9..]), wire.read64(answer.data[17..]), answer.data[25], answer.data[26] });
+        if (answer.len == 31) try log.print("{{\"event\":\"pico_boot_phase\",\"phase\":{d}}}\n", .{wire.read32(answer.data[27..])});
         try log.flush();
     }
 }
@@ -262,7 +267,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         try out.print("USB probe: {s}; TX/RX disabled, no UART payload.\n", .{identity.data[1..identity.len]});
         try out.flush();
         const started = serial_port.nowUs(io);
-        const has_health = std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.1");
+        const has_health = std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.1") or std.mem.eql(u8, identity.data[1..identity.len], "pico2-pc8001/0.1.2");
         var next_health = started;
         var replies: usize = 0;
         var maximum_us: u64 = 0;
