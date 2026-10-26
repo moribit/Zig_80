@@ -182,6 +182,17 @@ phase 7はループ末尾のsleep_us(50)区間です。SDK内部のどの命令�
 バージョン表示の食い違いも修正し、UF2のpicotoolメタデータをBRIDGE_VERSIONから生成します。
 修正版UF2生成・自動テストと、修正版での実USB安定性試験は別に記録します。
 
+0.1.3を実Pico 2へ書き込み、picotoolのフラッシュ照合と起動後のidentity/TX無効を確認しました。
+UF2 SHA-256は `aa6c8900998f089efb5b4d1fbc50a701ff1be8dd2e272f7d7117a948db72bb30`。
+同じUSB-C変換アダプター、PC電源OFF・信号線切り離し、UART TX/RX無効で120秒probeが正常終了しました。
+STATS応答714回、最大応答866 us、elapsed 120,015,542 us、最大メインループ間隔223 us。
+HEALTHのuptimeは単調増加し、watchdog_reboot/watchdog_timeout_rebootは全観測で0でした。
+ログは `/tmp/zig80-usb-health-013-long.jsonl`。これはUSB単体での改善の実測であり、
+256 BのPIO往復やPCローダー／デプロイの成功を意味しません。長時間での再発がないことまでは保証しません。
+試験終了後もUSB要求を止めて待機し、次のHEALTHでuptime 219,337,577 us、watchdog両フラグ0を確認しました。
+修正コミット48f99d0のLinux/macOS × Zig 0.16/0.17 CIも全4構成成功です：
+https://github.com/moribit/Zig_80/actions/runs/40327658556
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and
