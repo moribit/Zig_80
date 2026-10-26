@@ -1,0 +1,81 @@
+{
+  "date_local": "2026-10-26",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uf2_sha256": "522dd17b961b5736c40f8565fdbc26bd7469685bb18d01795648efe8b12af711",
+  "scope": "Physical PC-8001 mini bootstrap plus non-executing 256-byte roundtrip",
+  "raw_log_sha256": "7aaa55c29f9c8f25ed50d0145a017b3cb03ba95a551c6f02627a2c504b83eac0",
+  "mini_ready": {
+    "pico_us": 300916197,
+    "byte": 55,
+    "flags": 0
+  },
+  "relay_ready": [
+    {
+      "pico_us": 312641191,
+      "byte": 90,
+      "flags": 0
+    },
+    {
+      "pico_us": 312674550,
+      "byte": 48,
+      "flags": 0
+    },
+    {
+      "pico_us": 312707852,
+      "byte": 1,
+      "flags": 0
+    },
+    {
+      "pico_us": 312741206,
+      "byte": 0,
+      "flags": 0
+    },
+    {
+      "pico_us": 312774557,
+      "byte": 5,
+      "flags": 0
+    }
+  ],
+  "relay_received_bytes": 333,
+  "relay_checksum": "SUM8",
+  "relay_ready_elapsed_us": 11858422,
+  "echo_bytes": 256,
+  "echo_expected_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+  "echo_first_event": {
+    "pico_us": 321873934,
+    "byte": 0,
+    "flags": 0
+  },
+  "echo_last_event": {
+    "pico_us": 330373477,
+    "byte": 255,
+    "flags": 0
+  },
+  "ok_event": {
+    "pico_us": 330406830,
+    "byte": 79,
+    "flags": 0
+  },
+  "missing": 0,
+  "extra": 0,
+  "mismatches": 0,
+  "all_uart_flags_zero": true,
+  "roundtrip_elapsed_us": 17842484,
+  "completed_elapsed_us": 38266301,
+  "loader_retries": 0,
+  "pc_operator_report": {
+    "basic_ok": true,
+    "E806_decimal": 0,
+    "E804_hex": "85",
+    "INP_21_hex": "85",
+    "PE_OE_FE_mask_hex": "00"
+  },
+  "pico_after_test": {
+    "tx_enabled": false,
+    "watchdog_reboot": false,
+    "watchdog_timeout_reboot": false,
+    "max_loop_us": 257
+  },
+  "result": "PASS",
+  "resident_or_application_loaded": false
+}

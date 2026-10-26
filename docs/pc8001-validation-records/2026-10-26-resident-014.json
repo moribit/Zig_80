@@ -1,0 +1,31 @@
+{
+  "date_local": "2026-10-26",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uf2_sha256": "522dd17b961b5736c40f8565fdbc26bd7469685bb18d01795648efe8b12af711",
+  "scope": "Physical PC-8001 mini -> 333-byte relay -> resident loader installation; NO application deployment",
+  "raw_log_sha256": "91d06970d49d14a7b4672dddd5fee76078571e4400c8142d422ed6019317a194",
+  "uart_bytes_hex": "375a300100054fa55a01800010000100d000d8f16b0040000000008700bad5",
+  "all_uart_flags_zero": true,
+  "relay_received_bytes": 333,
+  "relay_ready_elapsed_us": 11858790,
+  "resident_transfer_bytes": 1280,
+  "resident_transfer_elapsed_us": 44940866,
+  "resident_address_hex": "D800",
+  "resident_crc16_hex": "6BF1",
+  "hello_frame_crc_valid": true,
+  "deployable_ram_hex": "D000-D7FF",
+  "completed": {
+    "deploy": "complete",
+    "elapsed_us": 71266838,
+    "retries": 0
+  },
+  "pico_after_test": {
+    "tx_enabled": false,
+    "watchdog_reboot": false,
+    "watchdog_timeout_reboot": false,
+    "uptime_us": 624486077,
+    "max_loop_us": 257
+  },
+  "application_deployed_or_executed": false,
+  "result": "PASS"
+}

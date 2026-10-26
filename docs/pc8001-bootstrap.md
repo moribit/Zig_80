@@ -1,7 +1,7 @@
 # PC-8001: small first bootstrap / 初回導入の小型化
 
 音声入力ケーブルがない現在の推奨は、**100バイトのmini Stage 0をMONで入力**する方法です。
-従来の333バイトDATA文を新たに入力する必要はありません。実機では未検証です。
+従来の333バイトDATA文を新たに入力する必要はありません。0.1.4でminiから常駐ローダー導入まで実機確認済みです。
 
 ## 構成と互換性
 
@@ -122,7 +122,7 @@ Deploy PTY統合12件、既存Serial PTY6件、メディア3件、PIOモデル4�
 Zigテストはサイズ・非重複・元333 BのSHA・全受信・チェックサム・途中停止・USARTエラー・SP/レジスタ保存を検証します。
 PTY統合は実CLI→実Cブリッジ→既存Z80→mini→中継→常駐→アプリ実行/復帰と非実行256 Bを検証します。
 メディアの独立テストはCMTチェックサム、WAV復調、BASIC/MONのバイト一致と入力数を検証します。
-**新mini、333 B中継、常駐導入、アプリ実行、カセットロードの実機検証は未実施です。**
+**mini・333 B中継・256 B往復・常駐導入は0.1.4で実機検証済みです。アプリ実行とカセットロードは未実施です。**
 
 ### 実機試行の記録（2026-10-26）
 
@@ -222,6 +222,29 @@ RXの半ビット検査・データ/stop中央サンプルは維持、TX 8-cycle
 40条件すべてで256 B一致、stop flag正常となり、元のPIOテストも通過しました。
 これは境界条件のソフトウェア再現と修正です。実機のB9位置のエラーとの因果関係や修正効果はまだ未確認です。
 CONFIGのdividerは互換性のためTX値のまま。150 MHz時はTX Q8=16,000,000、RX Q8=8,000,000です。
+
+0.1.4のUF2（SHA-256 `522dd17b961b5736c40f8565fdbc26bd7469685bb18d01795648efe8b12af711`）を
+書き込み・照合し、ユーザーがPC再接続・100 B一致・DEFUSRを確認後、同じmini経由の試験を実施しました。
+**PC-8001実機の256 B往復が成功**：00–FF完全一致、missing=0、extra=0、mismatch=0、CRC16=OK、再送0。
+mini READY＋中継READY＋256 B＋Oの263 UARTイベントはすべてflags=0、ホストも正常終了しTXを解放しました。
+中継READYまで11,858,422 us、往復17,842,484 us、セッション38,266,301 us（ユーザー待ち込み）。
+PCはBASICへ戻り、ユーザーがE806=0、保存status E804=85h、現在INP(21h)=85hを確認しました。
+PCのPE/OE/FEもすべて0です。終了後PicoはTX無効、watchdog両フラグ0、max_loop_us=257でした。
+記録：[実機256 B往復](pc8001-validation-records/2026-10-26-mini-preflight-014.json)。
+ログは `/tmp/zig80-mini-preflight-014.jsonl`。これはT非実行試験であり、この時点では常駐ローダー・アプリを実行していません。
+実装5990325の[Linux/macOS CI全4構成](https://github.com/moribit/Zig_80/actions/runs/40333571181)も成功しました。
+
+### 常駐ローダー導入の実機成功
+
+上記のPCステータス確認後、ユーザーの指示で `deploy resident --loader mini` を実行しました。
+ホストREADY待ち後にUSRを起動し、mini→333 B中継→1,280 B常駐イメージ受信・CRC16検証・D800起動まで成功。
+中継READYまで11,858,790 us、常駐イメージ転送44,940,866 us、セッション71,266,838 us（USR待ち込み）。
+HELLO応答のフレームCRCも独立照合し、protocol=1、RAM D000–D7FF、resident_crc=6BF1を確認しました。
+再送0、すべての受信UART flags=0、USBエラーなし、ホスト正常終了とTX無効を確認しました。
+終了後Picoはuptime 624,486,077 us、watchdog両フラグ0、max_loop_us=257でした。
+記録：[常駐導入](pc8001-validation-records/2026-10-26-resident-014.json)。ログは `/tmp/zig80-resident-014.jsonl`。
+PCは常駐ローダー待ちのまま保持します。再度USRを呼ぶ必要はありません。電源断・RESETでは再導入が必要です。
+この段階でアプリの転送やEXECは行っていません。
 
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
