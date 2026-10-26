@@ -198,6 +198,9 @@ int main(void) {
     (void)bridge_flush_rx(&device);
     tud_cdc_write_flush();
     phase(7);
-    sleep_us(50);
+    // Physical 0.1.2 repro: watchdog timeout with the retained phase == 7.
+    // Do not enter the SDK alarm/WFE sleep path in this short safety loop.
+    // IRQs remain enabled; the timer bounds the wait without a wakeup alarm.
+    busy_wait_us_32(50);
   }
 }

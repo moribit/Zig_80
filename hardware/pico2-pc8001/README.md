@@ -27,6 +27,14 @@ including status); hosts still accept the 0.1.1 reply. Values are 0=unknown/init
 1=USB task, 2=safety/tick, 3=USB commands, 4=RX, 5=TX, 6=USB flush, 7=sleep.
 SDK scratch[4..7], all deadlines and the loop wait implementation are unchanged.
 
+0.1.3 changes only the short loop delay from `sleep_us(50)` to
+`busy_wait_us_32(50)`, following a physical watchdog-timeout reproduction whose
+retained phase was 7 (sleep). This avoids the alarm/WFE sleep path without
+disabling interrupts or extending the watchdog/lease. It uses CPU polling during
+the 50 us delay. SDK-internal fault location remains unproven; physical stability
+of this fix must be measured separately from the native protocol tests.
+UF2 program metadata now derives its version from BRIDGE_VERSION as well.
+
 日本語：0.1.1は起動経過時間・ループ間隔・watchdog再起動フラグの取得を追加した診断版です。
 USB切断原因を直した版とは扱いません。PC-8001の電源OFF・信号線切り離し後にのみ書き込みます。
 

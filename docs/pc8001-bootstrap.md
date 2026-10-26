@@ -172,6 +172,16 @@ HEALTHの既存26 Bの後にuint32 LEのphaseを追加し、status込み31 Bで�
 phase: 0不明/初期化、1USB task、2接続/安全/tick、3USBコマンド、4RX、5TX、6USB flush、7sleep。
 0.1.2はUF2生成と自動検証まで。まだ実機へ書き込んでおらず、修正効果を主張する版ではありません。
 
+続いて0.1.2を書き込み照合（UF2 SHA-256
+`4a2d336d36fdac676d1e70764fc4b244c8c0a2e662169f9fa080cdcc5d0c5592`）し、同じ単体USB試験で再現しました。
+再起動後はwatchdog_reboot=1、watchdog_timeout_reboot=1、**previous_watchdog_phase=7**でした。
+phase 7はループ末尾のsleep_us(50)区間です。SDK内部のどの命令／割り込みが停止したかまでは特定していません。
+0.1.3はこの短い待機だけをbusy_wait_us_32(50)へ置き換え、アラーム/WFE起床経路を避けます。
+割り込みは無効にせず、watchdog 250 ms／TXリース1秒／Hi-Z／PIOの条件は維持します。
+低消費電力スリープを使わなくなるため、この50 usの間はCPUがタイマーをポーリングします。
+バージョン表示の食い違いも修正し、UF2のpicotoolメタデータをBRIDGE_VERSIONから生成します。
+修正版UF2生成・自動テストと、修正版での実USB安定性試験は別に記録します。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and
