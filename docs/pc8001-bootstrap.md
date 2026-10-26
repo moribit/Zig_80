@@ -193,6 +193,14 @@ HEALTHのuptimeは単調増加し、watchdog_reboot/watchdog_timeout_rebootは�
 修正コミット48f99d0のLinux/macOS × Zig 0.16/0.17 CIも全4構成成功です：
 https://github.com/moribit/Zig_80/actions/runs/40327658556
 
+続いてユーザーがPico単体のGP0–GP1ジャンパ接続を実施し、0.1.3／反転300 bps 8N1で実PIOループバックを確認しました。
+`serial test` は0x00–0xFFを送信し、256 B受信、256 B送信完了、mismatches=0、gaps=0で正常終了。
+フレーミング、RX overflow、PIO overrun、TX timeout、protocol、USB drop、lease expiration、TX abort、RX timeoutは全て0。
+経過9,023,635 us、ホスト基準28 B/s。JSONLを別途読み、256レコード・順序00..FF・余分/欠落なし・flags全0も照合しました。
+ログは `/tmp/zig80-loopback-013-inverted.jsonl`。終了後のinfoでtx_enabled=0、
+HEALTHでuptime 423,342,713 us、watchdog両フラグ0、max_loop_us=259を確認しました。
+これはPico単体の物理PIO試験です。PC-8001での256 B往復やローダー実行は引き続き未確認です。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and
