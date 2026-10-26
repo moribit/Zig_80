@@ -114,14 +114,28 @@ pub const Session = struct {
         var encoded: [wire.max_frame]u8 = undefined;
         const frame = try wire.encode(&encoded, command, self.sequence, payload);
         const deadline = serial_port.nowUs(self.port.io) + self.timeout_us;
+        if (self.queue_uart) if (self.log) |log| {
+            try log.print("{{\"event\":\"usb_request\",\"host_us\":{d},\"command\":{d},\"sequence\":{d},\"length\":{d}}}\n", .{ serial_port.nowUs(self.port.io), command, self.sequence, payload.len });
+            try log.flush();
+        };
         try self.port.write(frame, deadline);
         while (true) {
-            const answer = try self.next(deadline);
+            const answer = self.next(deadline) catch |err| {
+                if (self.queue_uart) if (self.log) |log| {
+                    try log.print("{{\"event\":\"usb_error\",\"host_us\":{d},\"command\":{d},\"sequence\":{d},\"partial_bytes\":{d},\"error\":\"{s}\"}}\n", .{ serial_port.nowUs(self.port.io), command, self.sequence, self.parser.used, @errorName(err) });
+                    try log.flush();
+                };
+                return err;
+            };
             if (answer.kind == wire.event) {
                 try self.events(&answer);
                 continue;
             }
             if (answer.sequence != self.sequence or answer.kind != command | 0x80 or answer.len < 1) return error.UnexpectedReply;
+            if (self.queue_uart) if (self.log) |log| {
+                try log.print("{{\"event\":\"usb_reply\",\"host_us\":{d},\"command\":{d},\"sequence\":{d},\"status\":{d}}}\n", .{ serial_port.nowUs(self.port.io), command, self.sequence, answer.data[0] });
+                try log.flush();
+            };
             if (answer.data[0] != 0) {
                 if (command == wire.arm) return error.TransmitPermissionRejected;
                 return error.DeviceCommandRejected;

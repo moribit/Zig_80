@@ -111,6 +111,11 @@ class DeployTests(unittest.TestCase):
             self.assertEqual(termios.tcgetattr(slave), before)
             records = [json.loads(line) for line in log.read_text().splitlines()]
             self.assertEqual(records[-1]["deploy"], "complete")
+            requests=[r for r in records if r.get("event")=="usb_request"]
+            replies=[r for r in records if r.get("event")=="usb_reply"]
+            self.assertGreater(len(requests),0)
+            self.assertEqual([(r["command"],r["sequence"]) for r in requests],[(r["command"],r["sequence"]) for r in replies])
+            self.assertTrue(all(r["status"]==0 for r in replies))
 
     def test_mini_relay_resident_application_chain_and_nonexecuting_preflight(self):
         with device("mini") as (port, _, _, _, _, _):

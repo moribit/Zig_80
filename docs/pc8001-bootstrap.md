@@ -124,6 +124,17 @@ PTY統合は実CLI→実Cブリッジ→既存Z80→mini→中継→常駐→ア
 メディアの独立テストはCMTチェックサム、WAV復調、BASIC/MONのバイト一致と入力数を検証します。
 **新mini、333 B中継、常駐導入、アプリ実行、カセットロードの実機検証は未実施です。**
 
+### 実機試行の記録（2026-10-26）
+
+ユーザーがMON入力後の100 B一致、RESET後の保持を確認しました。
+USR試行2回はREADY観測前にホスト→PicoのKEEPALIVE応答Timeoutで終了し、
+中継コード受信・256 B往復の成功は確認できていません。
+PCを停止させたままの追加試験でも、約20.6秒後（sequence 132）に同じUSB応答Timeoutを再現しました。
+従ってUSR実行が原因とは断定できません。直後のTX無効診断ではUSB応答あり、累積エラー項目は0でした。
+この0だけで、ファームウェア再起動やUSB障害を否定できません。
+DeployのJSONLにはusb_request/usb_reply/usb_errorの時刻・sequence・部分受信数を追加しました。
+安全条件、リース期限、UARTプロトコルは変更せず、切り分け完了前の再転送は行いません。
+
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
 reception; failure latches until reset. The existing CRC16 resident protocol and
