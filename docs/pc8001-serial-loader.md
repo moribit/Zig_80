@@ -15,7 +15,7 @@ Stage 0は最初だけ手入力し、Stage 1を受信・検証して起動しま
 アプリのRET/JP D803を経由して次のアプリを再転送できます。電源断・リセット・ローダー破壊後はStage 0の再導入が必要です。
 
 **0.1.4では両方向の文字列に加え、mini→333byte中継、256byte PC往復、常駐ローダー導入とCRC照合を実機確認済みです。
-アプリのRAMデプロイ・実行は未確認です。** 最新の実測は [bootstrap記録](pc8001-bootstrap.md) を参照してください。
+helloのRAMデプロイ・実行・画面表示と常駐への復帰も確認済みです。その他アプリは未確認です。** 最新の実測は [bootstrap記録](pc8001-bootstrap.md) を参照してください。
 ソフトウェアテストの成功で自動的に実機へバイナリを流しません。
 電気的な前提と未解決の `*` は [検証手順](pc8001-serial-validation.md) を参照してください。
 
@@ -142,7 +142,8 @@ zig80 deploy zig-out/pc8001/memory_test.bin --target pc8001 --port /dev/cu.usbmo
   --enable-tx --voltage-confirmed --wait-return
 ```
 
-helloは画面左上へ `HELLO FROM ZIG_80` を書き、RETでローダーへ戻ります。
+helloは現在の40/80文字モードに合わせて画面左上へ `HELLO FROM ZIG_80` を書き、RETでローダーへ戻ります。
+ROMやUART/表示設定を変更せず、復帰A=0は40文字、A=1は80文字です。
 memory_testはD700–D70Fへ00..0Fを書いて照合し、D710へ0（成功）/1（失敗）を残して復帰します。
 ホストが復帰Aを表示することとmemory_testのRAM結果は別です。RAM確認には既知の16byteファイルを
 `--load-address 0xd700 --entry 0xd700 --verify-only` で比較できます。VERIFY-onlyは書き込み/EXECをしません。

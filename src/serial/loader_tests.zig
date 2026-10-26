@@ -192,6 +192,7 @@ test "deployed samples write VRAM RAM and restore the resident stack through RET
         defer image.deinit();
         var h: Harness = undefined;
         try h.init(std.testing.io, allocator, false, false);
+        if (std.mem.eql(u8, name, "hello")) h.bus.memory[0xea66] |= 1; // Explicit WIDTH 80 precondition for contiguous cells.
         try expectStatus(try h.transact(wire.hello, 0, ""), 0);
         try expectStatus(try h.transact(wire.begin, 1, &beginBytes(wire.app_min, @intCast(image.bytes.items.len), wire.app_min, wire.crc(image.bytes.items), false)), 0);
         var sequence: u8 = 2;
@@ -214,5 +215,37 @@ test "deployed samples write VRAM RAM and restore the resident stack through RET
             try std.testing.expectEqual(@as(u8, 0), h.bus.memory[0xd710]);
         }
         if (std.mem.eql(u8, name, "return_to_loader")) try std.testing.expectEqual(@as(u8, 0x52), h.bus.memory[0xd710]);
+    }
+}
+
+test "hello respects 40 and 80 column character stride without changing attributes or serial mode" {
+    var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
+    var image = try @import("../assembler/assembler.zig").assembleFile(std.testing.io, allocator, "examples/pc8001/hello.asm", &failure);
+    defer image.deinit();
+    const message = "HELLO FROM ZIG_80";
+    for ([_]u8{ 0, 1 }) |width80| {
+        var h: Harness = undefined;
+        try h.init(std.testing.io, allocator, false, false);
+        h.bus.memory[0xea66] = 0x0a | width80;
+        try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+        try expectStatus(try h.transact(wire.begin, 1, &beginBytes(wire.app_min, @intCast(image.bytes.items.len), wire.app_min, wire.crc(image.bytes.items), false)), 0);
+        try expectStatus(try h.transact(wire.data, 2, image.bytes.items), 0);
+        try expectStatus(try h.transact(wire.verify, 3, ""), 0);
+        try expectStatus(try h.transact(wire.exec, 4, ""), 0);
+        try h.steps(20000);
+        const stride: usize = if (width80 == 1) 1 else 2;
+        for (h.bus.memory[0xf300..0xfeb8], 0..) |byte, i| {
+            const expected: u8 = if (i % stride == 0 and i / stride < message.len) message[i / stride] else 0xa5;
+            try std.testing.expectEqual(expected, byte);
+        }
+        try std.testing.expectEqual(@as(u8, 0x2a | width80), h.port30);
+        try std.testing.expectEqual(@as(usize, 1), h.application_entries);
+        try std.testing.expect(h.cpu.registers.sp >= 0xe700 and h.cpu.registers.sp <= 0xe800);
+        var parser: wire.Parser = .{};
+        var returned_mode: ?u8 = null;
+        for (h.tx[0..h.tx_len]) |byte| if (try parser.feed(byte)) |frame| {
+            if (frame.kind == 0x82) returned_mode = frame.bytes[6];
+        };
+        try std.testing.expectEqual(width80, returned_mode.?);
     }
 }

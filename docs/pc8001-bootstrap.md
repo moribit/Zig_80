@@ -1,7 +1,7 @@
 # PC-8001: small first bootstrap / 初回導入の小型化
 
 音声入力ケーブルがない現在の推奨は、**100バイトのmini Stage 0をMONで入力**する方法です。
-従来の333バイトDATA文を新たに入力する必要はありません。0.1.4でminiから常駐ローダー導入まで実機確認済みです。
+従来の333バイトDATA文を新たに入力する必要はありません。0.1.4でminiから常駐導入、hello転送・実行・画面表示・復帰まで実機確認済みです。
 
 ## 構成と互換性
 
@@ -122,7 +122,7 @@ Deploy PTY統合12件、既存Serial PTY6件、メディア3件、PIOモデル4�
 Zigテストはサイズ・非重複・元333 BのSHA・全受信・チェックサム・途中停止・USARTエラー・SP/レジスタ保存を検証します。
 PTY統合は実CLI→実Cブリッジ→既存Z80→mini→中継→常駐→アプリ実行/復帰と非実行256 Bを検証します。
 メディアの独立テストはCMTチェックサム、WAV復調、BASIC/MONのバイト一致と入力数を検証します。
-**mini・333 B中継・256 B往復・常駐導入は0.1.4で実機検証済みです。アプリ実行とカセットロードは未実施です。**
+**mini・333 B中継・256 B往復・常駐導入・helloの転送/表示/復帰は0.1.4で実機検証済みです。memory_test、serial_echo、カセットロードは未実施です。**
 
 ### 実機試行の記録（2026-10-26）
 
@@ -245,6 +245,27 @@ HELLO応答のフレームCRCも独立照合し、protocol=1、RAM D000–D7FF�
 記録：[常駐導入](pc8001-validation-records/2026-10-26-resident-014.json)。ログは `/tmp/zig80-resident-014.jsonl`。
 PCは常駐ローダー待ちのまま保持します。再度USRを呼ぶ必要はありません。電源断・RESETでは再導入が必要です。
 この段階でアプリの転送やEXECは行っていません。
+
+### helloの転送・表示・常駐への復帰
+
+常駐導入後、手入力・RESET・ブートストラップの再導入なしでhelloを転送しました。
+最初の29 B版はCRC6283一致、EXEC ACKと復帰通知まで成功したものの、ユーザーが表示の不一致を報告しました。
+この版はWIDTH 80を仮定して連続VRAMセルに書いていました。40文字モードでは偶数セルだけが表示されるため、
+既存CPUで40/80モードの表示セル・属性保持を検証する回帰テストを先に追加し、40モードの失敗を再現しました。
+根拠：[MAME初代PC-8001表示処理とport30 bit0](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc8001.cpp)。
+
+修正版helloはEA66のport30保存値bit0（ローダーのuart_initも使う値）を読み、
+80文字なら1 B間隔、40文字なら2 B間隔でF300以降の文字セルだけに書きます。
+属性・スキップセル・UART/表示の設定値を変更せず、ROMルーチンも呼びません。
+戻り値Aは0=40文字、1=80文字。修正版は44 B、CRC ADC1です。
+再転送でRAM CRC一致・EXEC ACK・ローダー復帰を確認し、A=00で40文字モードの使用を確認しました。
+**ユーザーが画面左上のHELLO FROM ZIG_80完全一致を確認しました。**
+再送0、経過約8.46秒、HELLO/BEGIN/DATA/VERIFY/EXEC/RETURNの6応答フレームCRCも独立照合済み。
+全UART flags=0、終了時TX無効、watchdog両フラグ0でした。
+記録：[hello実機結果](pc8001-validation-records/2026-10-26-hello-014.json)。
+ログは `/tmp/zig80-hello-014-adaptive.jsonl`。最初の試行は `/tmp/zig80-hello-014.jsonl`。
+これは常駐を保持してアプリを差し替え・実行・復帰できた実測です。任意アプリや未実施サンプルの動作保証とは区別します。
+回帰テストを含むZig 118件成功、既存Deploy PTY 12件も通過しました。
 
 The new 100-byte Stage 0 receives the unchanged 333-byte relay using a bounded
 receive loop and an additive checksum. It never jumps after incomplete or failed
