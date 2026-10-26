@@ -163,6 +163,8 @@ zig80 deploy zig-out/pc8001/serial_echo.bin --target pc8001 --port /dev/cu.usbmo
 
 グラフィックの有限時間デモは [ORBITAL RINGS](pc8001-demos.md) を参照してください。
 現在の表示設定を保持し、終了時に属性を復元して常駐へ戻ります。
+キーボード操作で遊べる [Mini Invaders](pc8001-invaders.md) は開始時に全画面をクリアし、ESC/STOPで常駐へ戻ります。
+対話ゲームは通常 `--wait-return` なしで起動します。
 
 `--target pc8001` と `--port PATH` は必須。候補が複数でも自動選択しません。
 既定load/entryはD000（entryの省略時はload）。`--load-address`/`--entry`は0x形式または10進。

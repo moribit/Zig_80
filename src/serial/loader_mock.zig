@@ -145,6 +145,7 @@ pub fn main(init: std.process.Init) !void {
     try ctx.h.init(init.io, init.arena.allocator(), std.mem.eql(u8, mode, "stage0"), false);
     ctx.resident = !std.mem.eql(u8, mode, "stage0") and !std.mem.eql(u8, mode, "mini");
     if (std.mem.eql(u8, mode, "mini")) try ctx.h.initMini(init.io, init.arena.allocator());
+    if (std.mem.eql(u8, ctx.fault, "auto-escape")) ctx.h.escape_after_polls = 12;
     if (std.mem.eql(u8, mode, "preflight")) {
         var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
         var image = try @import("../assembler/assembler.zig").assembleFile(init.io, init.arena.allocator(), "examples/pc8001/serial/binary_ready_test.asm", &failure);

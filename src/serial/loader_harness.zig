@@ -21,6 +21,9 @@ pub const Harness = struct {
     tx_delay: u8 = 0,
     protected_write: bool = false,
     application_entries: usize = 0,
+    keys: [16]u8 = @splat(0xff), // PC-8001 direct active-low keyboard rows.
+    keyboard_polls: usize = 0,
+    escape_after_polls: ?usize = null, // Optional physical-input script for CLI fixtures.
 
     pub fn assemble(io: std.Io, allocator: std.mem.Allocator, name: []const u8, fast_timeout: bool) !assembler.Result {
         var path: [160]u8 = undefined;
@@ -98,6 +101,14 @@ pub const Harness = struct {
     }
     fn read(context: *anyopaque, port: u16) u8 {
         const self: *Harness = @ptrCast(@alignCast(context));
+        const low: u8 = @truncate(port);
+        if (low < 16) {
+            if (low == 9) {
+                self.keyboard_polls += 1;
+                if (self.escape_after_polls) |limit| if (self.keyboard_polls >= limit) return self.keys[low] & 0x7f;
+            }
+            return self.keys[low];
+        }
         if (@as(u8, @truncate(port)) == 0x20) {
             if (self.rx_len == 0 or self.command & 4 == 0) return 0xff;
             const byte = self.rx[self.rx_head];

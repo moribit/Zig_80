@@ -5,6 +5,7 @@ test {
     _ = @import("serial/loader_tests.zig");
     _ = @import("serial/artifacts.zig");
     _ = @import("serial/demo_tests.zig");
+    _ = @import("serial/invaders_tests.zig");
     _ = @import("serial/protocol.zig");
     _ = @import("serial/z80_tests.zig");
     _ = @import("documentation_test.zig");

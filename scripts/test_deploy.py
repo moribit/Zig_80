@@ -63,7 +63,7 @@ class DeployTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         OUT.mkdir(parents=True, exist_ok=True)
-        for name in ("hello", "memory_test", "serial_echo", "return_to_loader", "orbital_rings"):
+        for name in ("hello", "memory_test", "serial_echo", "return_to_loader", "orbital_rings", "invaders"):
             result = subprocess.run([BINARY, "asm", f"examples/pc8001/{name}.asm", "-o", str(OUT / f"{name}.bin")], capture_output=True)
             assert result.returncode == 0, result.stderr
         (OUT / "one-kib.bin").write_bytes(b"\xc9" + bytes(i & 255 for i in range(1023)))
@@ -155,6 +155,25 @@ class DeployTests(unittest.TestCase):
             mock.communicate(timeout=5)
             self.assertIn("exec_entries=2", state.read_text())
             self.assertEqual(termios.tcgetattr(slave), before)
+
+    def test_interactive_game_launch_and_escape_return(self):
+        with device() as (port, _, _, state, _, mock):
+            result = run(port, OUT / "invaders.bin")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b"EXEC acknowledged", result.stdout)
+            self.assertIn(b"TX released", result.stdout)
+            self.assertNotIn(b"Application returned", result.stdout)
+            mock.terminate()
+            mock.communicate(timeout=5)
+            self.assertIn("exec_entries=1", state.read_text())
+        with device(fault="auto-escape") as (port, slave, before, _, _, _):
+            result = run(port, OUT / "invaders.bin", "--wait-return", "--timeout", "10000")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b"Application returned to loader; A=49", result.stdout)
+            self.assertEqual(termios.tcgetattr(slave), before)
+            result = run(port, OUT / "hello.bin", "--wait-return")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b"Application returned to loader", result.stdout)
 
     def test_binary_00_ff_and_application_owned_uart(self):
         with device("stage0") as (port, _, _, _, _, _):
