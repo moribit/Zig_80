@@ -55,6 +55,19 @@ Picoファームウェア、USART/CRTC設定、ローダープロトコルは変
 これらのモデル検証と、実機の表示・キー操作の確認は分けて記録します。
 Zig 0.17 Debug/ReleaseSafeで123件、Deploy PTYで14件が成功しています。
 
+## 実機結果（2026-10-27）
+
+Pico 0.1.4と既存のPC常駐ローダーを維持し、1,361 Bを転送、RAM CRC382F一致とEXEC ACKを確認しました。
+再送0、26応答フレームのCRCを独立照合し、全UART flags=0。起動要求からTX解放まで76.818秒でした。
+終了後PicoのTX無効、watchdog両フラグ0も確認しています。
+**ユーザーが、きれいなゲーム画面・左右移動・スペース射撃の動作を確認しました。**
+ゲームは起動したまま遊べる状態です。この実機記録ではESC/STOP終了・勝敗・再挑戦はまだ観測しておらず、
+それらはモデルでの検証結果と区別します。
+[永続記録](pc8001-validation-records/2026-10-27-invaders-014.json)、生ログ `/tmp/zig80-invaders-014-20261027.jsonl`。
+
+Linux CIでは既存のリングPTYテストがfixture終了後にtermiosを読んでEIOになったため、
+CLI終了後・PTY masterを閉じる前に復元状態を検査する順序へ修正しました。ゲーム本体や実機転送データは変更していません。
+
 English: ten invaders, cursor movement and simultaneous SPACE fire, score,
 three lives, victory/defeat and restart. The original PC-8001 left cursor uses
 Shift+Right; keypad 4/6 are alternatives. Startup and restart fully clear all
@@ -62,3 +75,5 @@ Shift+Right; keypad 4/6 are alternatives. Startup and restart fully clear all
 resident loader. Normal deployment releases TX after EXEC while the interactive
 game continues; it does not claim the game has returned. No new firmware or ROM
 entry point is required.
+The operator confirmed the clean game screen, movement and firing on the physical
+PC-8001. Physical quit/restart results are kept separate from automated tests.
