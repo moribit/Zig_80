@@ -57,6 +57,14 @@ pub const Harness = struct {
             self.rx_len += 1;
         }
     }
+    pub fn initMini(self: *Harness, io: std.Io, allocator: std.mem.Allocator) !void {
+        try self.init(io, allocator, true, false);
+        @memset(self.bus.memory[wire.stage0_address..][0..512], 0xa5);
+        var mini = try assemble(io, allocator, "mini_stage0", false);
+        defer mini.deinit();
+        @memcpy(self.bus.memory[wire.mini_address..][0..mini.bytes.items.len], mini.bytes.items);
+        self.cpu.registers.pc = wire.mini_address;
+    }
     pub fn steps(self: *Harness, count: usize) !void {
         for (0..count) |_| {
             if (self.cpu.registers.pc == 0xbeef) return;

@@ -1,5 +1,7 @@
 # Zig_80
 
+[PC-8001: 100-byte bootstrap / 初回導入の小型化](docs/pc8001-bootstrap.md)
+
 [English](README.md)
 
 PC-8001 / Pico 2の通信検証環境（Zig 0.17.0）を追加しました。

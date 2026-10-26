@@ -143,7 +143,8 @@ pub fn main(init: std.process.Init) !void {
     const ctx = try init.arena.allocator().create(Context);
     ctx.* = .{ .io = init.io, .mode = mode, .fault = if (args.len > 2) args[2] else "" };
     try ctx.h.init(init.io, init.arena.allocator(), std.mem.eql(u8, mode, "stage0"), false);
-    ctx.resident = !std.mem.eql(u8, mode, "stage0");
+    ctx.resident = !std.mem.eql(u8, mode, "stage0") and !std.mem.eql(u8, mode, "mini");
+    if (std.mem.eql(u8, mode, "mini")) try ctx.h.initMini(init.io, init.arena.allocator());
     if (std.mem.eql(u8, mode, "preflight")) {
         var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
         var image = try @import("../assembler/assembler.zig").assembleFile(init.io, init.arena.allocator(), "examples/pc8001/serial/binary_ready_test.asm", &failure);

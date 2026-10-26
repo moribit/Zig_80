@@ -6,12 +6,13 @@ const assets = @import("loader_assets.zig");
 
 pub const usage =
     \\zig80 deploy FILE --target pc8001 --port PATH --enable-tx --voltage-confirmed
-    \\  [--load-address 0xD000] [--entry ADDRESS] [--loader stage1|stage0]
+    \\  [--load-address 0xD000] [--entry ADDRESS] [--loader mini|stage1|stage0]
     \\  [--no-exec] [--verify-only] [--timeout MS] [--retries N] [--log FILE]
     \\  [--ready-timeout MS] [--wait-return] [--app-echo]
-    \\zig80 deploy bootstrap --target pc8001 [--format files|monitor|basic] [--out-dir DIR]
+    \\zig80 deploy bootstrap --target pc8001 [--bootstrap mini|legacy] [--format files|monitor|basic|cmt|wav] [--out-dir DIR]
+    \\zig80 deploy resident --target pc8001 --loader mini --port PATH --enable-tx --voltage-confirmed
     \\zig80 deploy stage1 --target pc8001 --loader stage0 --port PATH --enable-tx --voltage-confirmed
-    \\zig80 deploy test --target pc8001 --loader stage0|stage1|preflight --port PATH --enable-tx --voltage-confirmed
+    \\zig80 deploy test --target pc8001 --loader mini|stage0|stage1|preflight --port PATH --enable-tx --voltage-confirmed
     \\zig80 deploy abort --target pc8001 --port PATH --enable-tx --voltage-confirmed
     \\bootstrap is offline. Start the host BEFORE invoking Stage 0/preflight USR.
     \\Only D000-D7FF is deployable. Startup/exit remain Hi-Z. No automatic re-arm.
@@ -22,7 +23,8 @@ const Options = struct {
     port: ?[]const u8 = null,
     address: u16 = wire.app_min,
     entry: ?u16 = null,
-    mode: enum { stage0, stage1, preflight } = .stage1,
+    mode: enum { mini, stage0, stage1, preflight } = .stage1,
+    bootstrap: enum { mini, legacy } = .mini,
     timeout_us: u64 = 3_000_000,
     ready_us: u64 = 60_000_000,
     retries: u8 = 2,
@@ -53,7 +55,7 @@ fn parse(args: []const []const u8) !Options {
             if (std.mem.eql(u8, flag, "--target")) {
                 if (!std.mem.eql(u8, value, "pc8001")) return error.UnsupportedDeployTarget;
                 options.target = true;
-            } else if (std.mem.eql(u8, flag, "--port")) options.port = value else if (std.mem.eql(u8, flag, "--load-address")) options.address = try std.fmt.parseInt(u16, value, 0) else if (std.mem.eql(u8, flag, "--entry")) options.entry = try std.fmt.parseInt(u16, value, 0) else if (std.mem.eql(u8, flag, "--loader")) options.mode = std.meta.stringToEnum(@TypeOf(options.mode), value) orelse return error.InvalidLoaderMode else if (std.mem.eql(u8, flag, "--timeout")) options.timeout_us = try milliseconds(value) else if (std.mem.eql(u8, flag, "--ready-timeout")) options.ready_us = try milliseconds(value) else if (std.mem.eql(u8, flag, "--retries")) {
+            } else if (std.mem.eql(u8, flag, "--port")) options.port = value else if (std.mem.eql(u8, flag, "--load-address")) options.address = try std.fmt.parseInt(u16, value, 0) else if (std.mem.eql(u8, flag, "--entry")) options.entry = try std.fmt.parseInt(u16, value, 0) else if (std.mem.eql(u8, flag, "--loader")) options.mode = std.meta.stringToEnum(@TypeOf(options.mode), value) orelse return error.InvalidLoaderMode else if (std.mem.eql(u8, flag, "--bootstrap")) options.bootstrap = std.meta.stringToEnum(@TypeOf(options.bootstrap), value) orelse return error.InvalidBootstrapMode else if (std.mem.eql(u8, flag, "--timeout")) options.timeout_us = try milliseconds(value) else if (std.mem.eql(u8, flag, "--ready-timeout")) options.ready_us = try milliseconds(value) else if (std.mem.eql(u8, flag, "--retries")) {
                 options.retries = try std.fmt.parseInt(u8, value, 10);
                 if (options.retries > 10) return error.InvalidRetryLimit;
             } else if (std.mem.eql(u8, flag, "--log")) options.log = value else if (std.mem.eql(u8, flag, "--format")) options.format = value else if (std.mem.eql(u8, flag, "--out-dir")) options.directory = value else return error.InvalidArguments;
@@ -161,8 +163,8 @@ const Client = struct {
         }
     }
 };
-fn stage0(io: *Transport, images: *const assets.Images, ready_us: u64, timeout: u64, out: *std.Io.Writer) !u16 {
-    try waitStage0(io, ready_us, out);
+fn stage0(io: *Transport, images: *const assets.Images, ready_us: u64, timeout: u64, out: *std.Io.Writer, ready_received: bool) !u16 {
+    if (!ready_received) try waitStage0(io, ready_us, out);
     const started = io.now();
     const deadline = started + timeout + (wire.stage1_size + 3) * 40_000;
     try io.send("G", deadline);
@@ -180,16 +182,33 @@ fn stage0(io: *Transport, images: *const assets.Images, ready_us: u64, timeout: 
 fn waitStage0(io: *Transport, ready_us: u64, out: *std.Io.Writer) !void {
     try out.writeAll("TX idle established. Waiting for Stage 0 READY; invoke R=USR0(0) now.\n");
     try out.flush();
+    try readStage0Ready(io, io.now() + ready_us);
+}
+fn readStage0Ready(io: *Transport, ready_deadline: u64) !void {
     const expected = [_]u8{ 0x5a, 0x30, 1, @truncate(wire.stage1_size), @truncate(wire.stage1_size >> 8) };
     var matched: usize = 0;
-    const ready_deadline = io.now() + ready_us;
     while (matched < expected.len) {
         const byte = try io.readByte(ready_deadline);
         if (byte == expected[matched]) matched += 1 else matched = if (byte == expected[0]) 1 else 0;
     }
 }
-fn stage0Test(io: *Transport, ready_us: u64, timeout: u64, out: *std.Io.Writer) !void {
-    try waitStage0(io, ready_us, out);
+fn miniBoot(io: *Transport, images: *const assets.Images, ready_us: u64, timeout: u64, out: *std.Io.Writer) !void {
+    try out.writeAll("TX idle established. Waiting for Mini Stage 0 READY; invoke USR0 at E300 now.\n");
+    try out.flush();
+    const ready_deadline = io.now() + ready_us;
+    while (try io.readByte(ready_deadline) != wire.mini_ready) {}
+    const start = io.now();
+    const deadline = start + timeout + (wire.relay_size + 6) * 40_000;
+    try io.send(images.stage0, deadline);
+    var sum: u8 = 0;
+    for (images.stage0) |byte| sum +%= byte;
+    try io.send(&.{0 -% sum}, deadline);
+    try io.drain(deadline);
+    try readStage0Ready(io, deadline);
+    try out.print("Relay Stage 1 READY after {d} bytes + SUM8; elapsed_us={d}\n", .{ images.stage0.len, io.now() - start });
+}
+fn stage0Test(io: *Transport, ready_us: u64, timeout: u64, out: *std.Io.Writer, ready_received: bool) !void {
+    if (!ready_received) try waitStage0(io, ready_us, out);
     var pattern: [258]u8 = undefined;
     for (pattern[0..256], 0..) |*byte, i| byte.* = @intCast(i);
     wire.put16(pattern[256..], wire.crc(pattern[0..256]));
@@ -244,14 +263,17 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     if (std.mem.eql(u8, name, "bootstrap")) {
         try assets.generate(io, allocator, options.directory, out);
         if (!std.mem.eql(u8, options.format, "files")) {
-            const extension = if (std.mem.eql(u8, options.format, "monitor")) "-monitor.txt" else if (std.mem.eql(u8, options.format, "basic")) ".bas" else return error.InvalidFormat;
-            const path = try std.fmt.allocPrint(allocator, "{s}/stage0{s}", .{ options.directory, extension });
+            const audio = std.mem.eql(u8, options.format, "cmt") or std.mem.eql(u8, options.format, "wav");
+            const extension = if (std.mem.eql(u8, options.format, "monitor")) "-monitor.txt" else if (std.mem.eql(u8, options.format, "basic")) ".bas" else if (std.mem.eql(u8, options.format, "wav")) ".wav" else if (std.mem.eql(u8, options.format, "cmt")) ".cmt" else return error.InvalidFormat;
+            const path = try std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ options.directory, if (options.bootstrap == .mini) "mini-stage0" else "relay-stage1", extension });
             defer allocator.free(path);
-            const text = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(65536));
-            defer allocator.free(text);
-            try out.writeAll(text);
+            if (audio) try out.print("Generated cassette file: {s}; playback is manual, never automatic.\n", .{path}) else {
+                const text = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(65536));
+                defer allocator.free(text);
+                try out.writeAll(text);
+            }
         }
-        try out.writeAll("Next: start deploy stage1 --loader stage0 --target pc8001 --port PATH --enable-tx --voltage-confirmed, wait for READY prompt, then invoke USR on PC.\n");
+        try out.print("Next: start deploy resident --loader {s} --target pc8001 --port PATH --enable-tx --voltage-confirmed, wait for READY prompt, then invoke USR on PC.\n", .{if (options.bootstrap == .mini) "mini" else "stage0"});
         return;
     }
     if (!options.tx or !options.voltage) {
@@ -260,10 +282,10 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     }
     const port = options.port orelse return error.ExplicitPortRequired;
     const is_test = std.mem.eql(u8, name, "test");
-    const install_only = std.mem.eql(u8, name, "stage1");
+    const install_only = std.mem.eql(u8, name, "stage1") or std.mem.eql(u8, name, "resident");
     const abort_only = std.mem.eql(u8, name, "abort");
     if (abort_only and options.mode != .stage1) return error.InvalidLoaderMode;
-    if (install_only and options.mode != .stage0) return error.Stage0ModeRequired;
+    if (install_only and options.mode != .stage0 and options.mode != .mini) return error.Stage0ModeRequired;
     const file_bytes: ?[]u8 = if (!is_test and !install_only and !abort_only) try std.Io.Dir.cwd().readFileAlloc(io, name, allocator, .limited(2049)) else null;
     defer if (file_bytes) |bytes| allocator.free(bytes);
     const payload = file_bytes orelse "";
@@ -271,7 +293,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     if (file_bytes != null and !wire.validRange(options.address, payload.len, entry)) return error.UnsafeDeployRange;
     if (options.log) |path| if (std.mem.eql(u8, path, name)) return error.LogWouldOverwriteProgram;
     // Assembly/file I/O happens before ARM; it must not starve the 1 s lease.
-    var boot_images: ?assets.Images = if (options.mode == .stage0 and !is_test) try assets.Images.load(io, allocator) else null;
+    var boot_images: ?assets.Images = if ((options.mode == .stage0 and !is_test) or options.mode == .mini) try assets.Images.load(io, allocator) else null;
     defer if (boot_images) |*images| images.deinit(allocator);
     var log_file: ?std.Io.File = null;
     var log_buffer: [4096]u8 = undefined;
@@ -293,9 +315,10 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     const start = channel.now();
     var client: Client = .{ .io = &channel, .timeout = options.timeout_us, .retries = options.retries, .out = out };
     // On failure: GPIO/DTR cleanup always runs. Never send an unsequenced EXEC.
-    const expected_loader_crc: ?u16 = if (boot_images) |*images| try stage0(&channel, images, options.ready_us, options.timeout_us, out) else null;
+    if (options.mode == .mini) try miniBoot(&channel, &boot_images.?, options.ready_us, options.timeout_us, out);
+    const expected_loader_crc: ?u16 = if (!is_test and boot_images != null) try stage0(&channel, &boot_images.?, options.ready_us, options.timeout_us, out, options.mode == .mini) else null;
     if (is_test) {
-        if (options.mode == .stage0) try stage0Test(&channel, options.ready_us, options.timeout_us, out) else try binaryTest(&client, options.ready_us, options.mode == .preflight);
+        if (options.mode == .stage0 or options.mode == .mini) try stage0Test(&channel, options.ready_us, options.timeout_us, out, options.mode == .mini) else try binaryTest(&client, options.ready_us, options.mode == .preflight);
     } else {
         const loader = try client.hello();
         const actual = wire.read16(loader.bytes[6..]);

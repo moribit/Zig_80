@@ -69,7 +69,7 @@ class DeployTests(unittest.TestCase):
         (OUT / "one-kib.bin").write_bytes(b"\xc9" + bytes(i & 255 for i in range(1023)))
 
     def test_bootstrap_formats_and_crc_checked_basic(self):
-        result = subprocess.run([BINARY, "deploy", "bootstrap", "--target", "pc8001", "--format", "monitor", "--out-dir", str(OUT)], capture_output=True)
+        result = subprocess.run([BINARY, "deploy", "bootstrap", "--target", "pc8001", "--bootstrap", "legacy", "--format", "monitor", "--out-dir", str(OUT)], capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         code = (OUT / "stage0.bin").read_bytes()
         basic = (OUT / "stage0.bas").read_text()
@@ -111,6 +111,20 @@ class DeployTests(unittest.TestCase):
             self.assertEqual(termios.tcgetattr(slave), before)
             records = [json.loads(line) for line in log.read_text().splitlines()]
             self.assertEqual(records[-1]["deploy"], "complete")
+
+    def test_mini_relay_resident_application_chain_and_nonexecuting_preflight(self):
+        with device("mini") as (port, _, _, _, _, _):
+            result=run(port,OUT / "hello.bin","--loader","mini","--wait-return")
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn(b"Relay Stage 1 READY after 333 bytes + SUM8",result.stdout)
+            self.assertIn(b"Stage 0 accepted CRC16",result.stdout)
+            self.assertIn(b"RAM CRC16 verified",result.stdout)
+            self.assertIn(b"Application returned",result.stdout)
+        with device("mini") as (port, _, _, _, _, _):
+            result=run(port,"test","--loader","mini")
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn(b"256/256",result.stdout)
+            self.assertIn(b"no jump",result.stdout)
 
     def test_one_kib_no_exec_verify_only_and_repeat_deploy(self):
         with device() as (port, slave, before, _, _, _):
@@ -178,7 +192,7 @@ class DeployTests(unittest.TestCase):
                     self.assertTrue(any(r.get("flags",0) & 1 for r in map(json.loads,log.read_text().splitlines())))
 
     def test_absent_stage0_or_stage1_reports_timeout_without_upload(self):
-        for mode in ("stage0", "stage1"):
+        for mode in ("stage0", "stage1", "mini"):
             with device("silent") as (port, _, _, _, _, _):
                 result = run(port, OUT / "hello.bin", "--loader", mode, "--ready-timeout", "100", "--timeout", "100", "--retries", "0")
                 self.assertNotEqual(result.returncode, 0)

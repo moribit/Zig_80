@@ -1,4 +1,6 @@
 test {
+    _ = @import("serial/mini_tests.zig");
+    _ = @import("serial/cassette.zig");
     _ = @import("serial/loader_protocol.zig");
     _ = @import("serial/loader_tests.zig");
     _ = @import("serial/artifacts.zig");

@@ -1,5 +1,9 @@
 # Zig_80 → PC-8001 Serial Deploy
 
+新しい初回導入は [100バイトStage 0手順](pc8001-bootstrap.md) を参照してください。
+以下の333バイトStage 0という名称は旧CLIの互換名です。新構成では中継Stage 1として維持します。
+以下の旧bootstrap表示コマンドでは `--bootstrap legacy` を追加してください。
+
 ## 現状と構成
 
 既存のアセンブラ、Z80 CPU、Port Device、Pico SDK 2.3.0のPIO/USBブリッジを再利用します。

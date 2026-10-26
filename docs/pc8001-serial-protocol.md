@@ -1,5 +1,7 @@
 # PC-8001 Serial Deploy protocol v1
 
+100 Bの新Stage 0（E300–E363）、333 B中継、既存常駐ローダーの接続仕様・初回手順は [bootstrap補足](pc8001-bootstrap.md) を参照してください。
+
 ## 層とセッション
 
 ```

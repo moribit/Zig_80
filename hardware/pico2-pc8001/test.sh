@@ -19,3 +19,4 @@ python3 hardware/pico2-pc8001/tests/test_pio.py
 python3 hardware/pico2-pc8001/tests/test_host.py
 "$zig_bin" build loader-mock -Doptimize=ReleaseSafe
 python3 scripts/test_deploy.py
+python3 scripts/test_bootstrap_media.py

@@ -1,5 +1,7 @@
 # Zig_80
 
+[PC-8001: 100-byte bootstrap / 初回導入の小型化](docs/pc8001-bootstrap.md)
+
 [日本語](README.ja.md)
 
 PC-8001 / Pico 2 experimental serial validation (Zig 0.17.0):

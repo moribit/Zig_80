@@ -1,5 +1,7 @@
 # PC-8001 / Pico 2 serial validation
 
+[PC-8001: 100-byte bootstrap / 初回導入の小型化](../../docs/pc8001-bootstrap.md)
+
 Experimental, 300 baud, 8N1, inverted UART on GP0 (TX) / GP1 (RX).
 **Physical strings have now passed in both directions; PC-8001 binary/loader deployment remains unverified.**
 TERM still shows `*` around host transmissions while TX is Hi-Z; the electrical cause

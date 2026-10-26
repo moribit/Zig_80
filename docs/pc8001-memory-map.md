@@ -1,5 +1,7 @@
 # PC-8001 serial loader memory profile v1
 
+100 Bの新Stage 0（E300–E363）、333 B中継、既存常駐ローダーの接続仕様・初回手順は [bootstrap補足](pc8001-bootstrap.md) を参照してください。
+
 対象は初代PC-8001、N-BASIC、RAMに余裕を予約した開発用構成です。PC-8801/mkIIのバンクや
 ROMルーチンを流用しません。`CLEAR 300,&HCFFF` が成功すること、E400hへのDATA/POKEと
 読み戻しCRCが成功することが実機での開始条件です。RAM増設量やROM版を自動検出したとは扱いません。
