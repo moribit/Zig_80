@@ -55,24 +55,45 @@ Screen contents are not restored on exit.
 英字は大文字へ統一します。曲がった単引用符・二重引用符はASCIIの引用符へ、
 ダッシュは「-」、改行禁止空白は通常の空白へ変換します。それ以外の非ASCII文字は
 「?」、LF以外の制御文字は空白になります。点滅カーソルは入力・回答の末尾に追従します。
-回答待ちの間はステータス行で「| / - \\」が回転し、完了すると消えます。
+回答待ちの間は「AI> .」の位置で`. → + → * → +`と記号が変化し、
+最初の回答が届くと本文に置き換わります。円記号になるバックスラッシュ等は使いません。
 属性と表示モードを維持し、文字領域だけをクリア・更新します。
 
-The RECEIVING status animates a four-phase spinner every eight VRTC rising
-edges (port 40h, bit 5). It never waits for retrace or adds UART/display delays;
-frame reception can temporarily pause the indicator. DONE/ERROR clears it via
-the READY status. Cursor/VRTC behavior follows the
+The four-phase spinner appears immediately after AI> and advances every eight
+VRTC rising edges (port 40h, bit 5). The cursor waits one cell after it. It never
+waits for retrace or adds UART/display delays; frame reception can temporarily
+pause the indicator. First valid TEXT replaces it; empty DONE, ERROR and exit
+also clear it. Later answer text is never overwritten by the indicator.
+Cursor/VRTC behavior follows the
 [MAME PC-8001 port map](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc8001.cpp)
 and [uPD3301 command implementation](https://github.com/mamedev/mame/blob/master/src/devices/video/upd3301.cpp).
+
+The chat viewport uses rows 0–19, keeping the title/status fixed and scrolling
+only rows 2–19. This is visible in both 20- and 25-row hardware modes without
+changing the CRTC configuration; five lower rows remain unused in 25-row mode.
+The [NEC manual's power-on description (PDF page 15)](https://oldcrap.org/wp-content/uploads/2024/07/nec-pc8001b-users-manual.pdf)
+specifies 40 columns by 20 rows. Earlier chat versions assumed 25 rows and
+could put the next prompt outside that visible area. A regression test now
+fills and scrolls the screen repeatedly for 15 turns, checks every prompt and
+cursor stays below row 20, and exercises sequence-number wraparound.
+
+標準の20行表示で入力欄が画面外に隠れないよう、本文を2〜19行の範囲でスクロールします。
+25行表示でも表示モードは変えず、上側20行を使います。
 
 ## Streaming and safety / ストリーミング
 
 Ollama [POST /api/chat](https://docs.ollama.com/api/chat) is called with
 stream=true. Nonblocking loopback HTTP/1.1 supports chunked and content-length
 bodies. Bounded NDJSON events are parsed as received, normalized and queued.
-TEXT flushes at 32 bytes, LF, after 200ms, or on DONE. Queued bytes remain
+TEXT flushes at 8 bytes by default, LF, after 100ms, or on DONE. Queued bytes remain
 until ACK, and HTTP reading pauses during UART transmission/ACK waits. TCP
 buffers provide additional backpressure. No artificial character delay is used.
+
+The smaller chunks reduce the size of each visible burst. --text-chunk-size
+accepts 1–32: 4 gives finer updates, while 16 or 32 favors throughput. Smaller
+chunks incur more CRC/ACK overhead on the 300bps link. The protocol still
+allows 32 bytes and renders only validated frames; it does not display
+unverified bytes or pace a completed response with delays.
 
 Responses are limited to 160 ASCII characters (configurable downward); reaching
 the limit immediately closes HTTP to cancel further generation. Completed
@@ -95,17 +116,17 @@ session. Optional logs contain response text.
 
 | Range | Purpose |
 |---|---|
-| D000–D662 | 1635-byte app, tables and ACK scratch |
-| D680–D6BF | 64-byte prompt |
+| D000–D692 | 1683-byte app, tables and ACK scratch |
 | D6C0–D6E6 | receive frame |
 | D700–D726 | transmit frame |
 | D730–D754 | exact previous received frame |
 | D760–D769 | keyboard edge state |
 | D770–D77E | saved stack, display and protocol state |
 | D780–D787 | cached cursor position and VRTC/spinner state |
+| D7C0–D7FF | 64-byte prompt |
 | E700–E7FF | existing resident private stack |
 
-Before ARM, code is checked not to cross D680h. Upload uses the resident's
+Before ARM, code is checked not to cross D6C0h. Upload uses the resident's
 D000–D7FF checks. Emulator tests verify no writes to protected RAM, resident
 code or BASIC work. Native apps are not execution sandboxes.
 
@@ -139,7 +160,7 @@ exit and a subsequent resident HELLO/ABORT succeeded. The host validated
 transport counters and released TX. See the [physical record](pc8001-validation-records/2026-10-27-chat-014.json). The 30-minute endurance test is pending at the
 user's request. Earlier loader/game success is not chat validation.
 
-The UI refinement image is 1635 bytes (CRC16 4B3F). Its typographic punctuation,
+The first UI refinement image was 1635 bytes (CRC16 4B3F). Its typographic punctuation,
 cursor tracking, VRTC spinner, preserved attributes and protected RAM pass
 automated tests, including UTF-8 split across HTTP chunks. Physical upload and
 HELLO/READY, readable apostrophes, cursor following, spinner animation and ESC
@@ -147,3 +168,9 @@ return were confirmed on the physical PC-8001. A subsequent resident HELLO/ABORT
 also passed and TX was released. See the [UI physical record](pc8001-validation-records/2026-10-27-chat-ui-014.json).
 
 See [Chat Protocol v1](pc8001-chat-protocol.md).
+
+The inline/smaller-burst revision is 1683 bytes (CRC16 F1A3). The user confirmed
+the JIS-safe loading symbols and continued input/answers after the screen
+filled. Ten real Gemma turns, ESC exit, resident HELLO/ABORT and TX release
+succeeded with no retransmissions or transport error increase. See the
+[20-row physical record](pc8001-validation-records/2026-10-27-chat-screen20-014.json).

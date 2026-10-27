@@ -15,7 +15,7 @@ const Terminal = struct {
         var failure: assembler.FailureLocation = .{};
         self.image = try assembler.assembleFile(std.testing.io, std.testing.allocator, "examples/pc8001/chat.asm", &failure);
         errdefer self.image.deinit();
-        try std.testing.expect(self.image.bytes.items.len <= 0x680);
+        try std.testing.expect(self.image.bytes.items.len <= 0x6c0);
         try self.h.init(std.testing.io, std.testing.allocator, false, false);
         self.h.bus.memory[0xea66] = 0x28 | mode;
         @memcpy(self.h.bus.memory[0xd000..][0..self.image.bytes.items.len], self.image.bytes.items);
@@ -80,11 +80,20 @@ const Terminal = struct {
     fn presentation(self: *Terminal) !void {
         try self.h.steps(1);
         try self.until("keyboard");
-        try std.testing.expectEqual(self.get("COL") * self.get("STRIDE"), self.h.cursor_x);
+        try std.testing.expectEqual((self.get("COL") + self.get("ANIM_ACTIVE")) * self.get("STRIDE"), self.h.cursor_x);
         try std.testing.expectEqual(self.get("ROW"), self.h.cursor_y);
         try std.testing.expect(self.h.cursor_enabled);
         try std.testing.expect(!self.h.invalid_crtc_command);
         try self.h.steps(1);
+        try self.until("chat_loop");
+    }
+    fn ask(self: *Terminal) !void {
+        try self.key(2, 2);
+        self.h.keys[1] = 0x7f;
+        const prompt = try self.next();
+        try std.testing.expectEqual(wire.Kind.prompt, prompt.kind);
+        self.h.keys[1] = 255;
+        try self.feed(.ack, prompt.seq, "");
         try self.until("chat_loop");
     }
 };
@@ -161,18 +170,20 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
     }
 }
 
-test "Z80 chat loading spinner follows VRTC while preserving cursor text and attributes" {
+test "Z80 chat spinner sits after AI and is replaced safely by text empty DONE and cancellation" {
     for (0..4) |mode| {
         var t: Terminal = undefined;
         try t.init(@intCast(mode));
         defer t.deinit();
         try t.connect();
-        t.set("STATE", 2);
+        try t.ask();
         const before = t.h.bus.memory;
         const row = t.get("ROW");
         const col = t.get("COL");
-        const spinner_cell = @as(usize, 0xf378) + 10 * t.get("STRIDE");
-        const frames = [_]u8{ '|', '/', '-', 92 };
+        const spinner_cell = @as(usize, 0xf300) + row * @as(usize, 120) + col * t.get("STRIDE");
+        for ("AI> ", 0..) |char, i| try std.testing.expectEqual(char, t.h.bus.memory[0xf300 + @as(usize, row) * 120 + i * t.get("STRIDE")]);
+        try std.testing.expectEqual(@as(u8, '.'), t.h.bus.memory[spinner_cell]);
+        const frames = [_]u8{ '+', '*', '+', '.' };
         for (frames) |expected| {
             for (0..8) |_| {
                 t.h.vrtc = false;
@@ -185,11 +196,34 @@ test "Z80 chat loading spinner follows VRTC while preserving cursor text and att
         try std.testing.expectEqual(row, t.get("ROW"));
         try std.testing.expectEqual(col, t.get("COL"));
         for (0..25) |r| try std.testing.expectEqualSlices(u8, before[0xf300 + r * 120 + 80 ..][0..40], t.h.bus.memory[0xf300 + r * 120 + 80 ..][0..40]);
-        try t.feed(.done, 1, "");
+        try t.feed(.text, 1, "FIRST");
         _ = try t.next();
         try t.until("chat_loop");
         try t.presentation();
-        try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[spinner_cell]);
+        try std.testing.expectEqual(@as(u8, 0), t.get("ANIM_ACTIVE"));
+        for (0..8) |_| {
+            t.h.vrtc = false;
+            try t.presentation();
+            t.h.vrtc = true;
+            try t.presentation();
+        }
+        for ("FIRST", 0..) |char, i| try std.testing.expectEqual(char, t.h.bus.memory[spinner_cell + i * t.get("STRIDE")]);
+        try t.feed(.done, 2, "");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.ask();
+        const empty_cell = 0xf300 + @as(usize, t.get("ROW")) * 120 + @as(usize, t.get("COL")) * t.get("STRIDE");
+        try t.feed(.done, 3, "");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[empty_cell]);
+        try t.ask();
+        const cancel_cell = 0xf300 + @as(usize, t.get("ROW")) * 120 + @as(usize, t.get("COL")) * t.get("STRIDE");
+        try t.feed(.cancel, 4, "");
+        _ = try t.next();
+        try t.h.steps(1000);
+        try std.testing.expectEqual(@as(u16, 0xbeef), t.h.cpu.registers.pc);
+        try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[cancel_cell]);
     }
 }
 
@@ -244,4 +278,37 @@ test "Z80 chat corrupt oversized and non-ASCII frames never draw or advance sequ
     try std.testing.expectEqual(wire.Kind.ack, (try t.next()).kind);
     try t.until("chat_loop");
     try std.testing.expectEqual(@as(u8, 2), t.get("RXSEQ"));
+}
+
+test "Z80 chat keeps new prompts visible through repeated full screens in 20-row mode" {
+    for (0..4) |mode| {
+        var t: Terminal = undefined;
+        try t.init(@intCast(mode));
+        defer t.deinit();
+        try t.connect();
+        var seq: u8 = 1;
+        for (0..15) |_| {
+            try t.ask();
+            for (0..20) |_| {
+                try t.feed(.text, seq, "ABCDEFG\n");
+                _ = try t.next();
+                try t.until("chat_loop");
+                try std.testing.expect(t.get("ROW") < 20);
+                try t.presentation();
+                seq +%= 1;
+            }
+            try t.feed(.done, seq, "");
+            _ = try t.next();
+            try t.until("chat_loop");
+            seq +%= 1;
+            try std.testing.expectEqual(@as(u8, 1), t.get("STATE"));
+            try std.testing.expect(t.get("ROW") < 20);
+            try t.presentation();
+            for ("YOU> ", 0..) |c, col| try std.testing.expectEqual(c, t.h.bus.memory[0xf300 + @as(usize, t.get("ROW")) * 120 + col * t.get("STRIDE")]);
+        }
+        try t.feed(.cancel, seq, "");
+        _ = try t.next();
+        try t.h.steps(1000);
+        try std.testing.expectEqual(@as(u16, 0xbeef), t.h.cpu.registers.pc);
+    }
 }

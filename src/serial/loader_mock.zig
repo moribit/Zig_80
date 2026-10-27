@@ -52,6 +52,7 @@ const Context = struct {
     chat_visible: bool = false,
     chat_watch: ?u8 = null,
     chat_returned: bool = false,
+    chat_max_row: u8 = 0,
     fn now(self: *Context) u64 {
         return @import("transport.zig").nowUs(self.io);
     }
@@ -178,6 +179,15 @@ const Context = struct {
         const app = self.h.cpu.registers.pc >= wire.app_min and self.h.cpu.registers.pc < wire.app_end;
         if (!app) return;
         const state = self.h.bus.memory[0xd77a];
+        const row = self.h.bus.memory[0xd775];
+        if ((state == 1 or state == 2) and row > self.chat_max_row) {
+            self.chat_max_row = row;
+            if (self.log) |fd| {
+                var buffer: [64]u8 = undefined;
+                const line = std.fmt.bufPrint(&buffer, "chat_max_row={d}\n", .{row}) catch unreachable;
+                _ = writeAll(fd, line);
+            }
+        }
         if (state == 2) self.chat_waited = true;
         if (state == 1 and self.chat_waited) {
             self.chat_waited = false;

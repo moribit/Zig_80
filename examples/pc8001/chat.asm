@@ -3,7 +3,7 @@
 ; uPD3301 cursor position only: 81h to port 51h, X/Y to 50h.
 ; Keyboard mapping: MAME src/mame/nec/pc88_kbd.cpp (original PC8001).
 org 0xd000
-PROMPT equ 0xd680
+PROMPT equ 0xd7c0
 RX equ 0xd6c0
 TX equ 0xd700
 PREVIOUS equ 0xd730
@@ -26,7 +26,9 @@ CURSOR_POS equ 0xd780
 VRTC_LAST equ 0xd782
 ANIM_COUNT equ 0xd783
 ANIM_PHASE equ 0xd784
+ANIM_ACTIVE equ 0xd785
 POLL_LIMIT equ 0
+VIEW_ROWS equ 20 ; Visible on the default 20-row mode and on 25-row screens.
 
     xor a
     ld hl,KEYS
@@ -139,7 +141,9 @@ submit:
     jr z,chat_loop
     xor a
     ld (ANIM_COUNT),a
+    inc a
     ld (ANIM_PHASE),a
+    ld (ANIM_ACTIVE),a
     ld hl,busy_text
     call status
     call newline
@@ -147,6 +151,9 @@ submit:
     call puts
     ld a,2
     ld (STATE),a
+    call cell
+    ld (hl),46
+    call cursor_update
     ld hl,PROMPT
     ld a,(LENGTH)
     ld c,a
@@ -305,6 +312,7 @@ validate_text:
 text_valid:
     inc hl
     djnz validate_text
+    call stop_loading
     ld a,(RX+2)
     ld b,a
     ld hl,RX+3
@@ -329,6 +337,7 @@ error_frame:
     ld hl,error_text
     call puts
 new_question:
+    call stop_loading
     ld hl,ready_text
     call status
     call newline
@@ -525,11 +534,15 @@ exit_chat:
     call reliable
 return_loader:
     ld sp,(ENTRY_SP)
+    call stop_loading
+    call cursor_update
     call uart_drain
     ld a,0x43
     ret
 fault_exit:
     ld sp,(ENTRY_SP)
+    call stop_loading
+    call cursor_update
     ld a,0x45
     ret
 
@@ -612,6 +625,9 @@ key_lookup:
 cursor_update:
     ld a,(COL)
     ld l,a
+    ld a,(ANIM_ACTIVE)
+    add a,l
+    ld l,a
     ld a,(ROW)
     ld h,a
     ld de,(CURSOR_POS)
@@ -647,6 +663,9 @@ animate:
     ld a,(STATE)
     cp 2
     ret nz
+    ld a,(ANIM_ACTIVE)
+    or a
+    ret z
     ld hl,ANIM_COUNT
     inc (hl)
     ld a,(hl)
@@ -660,14 +679,21 @@ animate:
     ld d,0
     ld hl,spinner
     add hl,de
-    ld b,(hl)
-    ld hl,0xf382
-    ld a,(STRIDE)
-    dec a
-    jr z,spinner_store
-    ld hl,0xf38c
+    ld a,(hl)
+    push af
+    call cell
+    pop af
 spinner_store:
-    ld (hl),b
+    ld (hl),a
+    ret
+stop_loading:
+    ld a,(ANIM_ACTIVE)
+    or a
+    ret z
+    xor a
+    ld (ANIM_ACTIVE),a
+    call cell
+    ld (hl),32
     ret
 status:
     ld a,(ROW)
@@ -712,14 +738,14 @@ newline:
     ld (COL),a
     ld a,(ROW)
     inc a
-    cp 25
+    cp VIEW_ROWS
     jr z,scroll
     ld (ROW),a
     ret
 scroll:
     ld hl,0xf468
     ld de,0xf3f0
-    ld b,22
+    ld b,VIEW_ROWS-3
 scroll_row:
     push bc
     ld bc,80
@@ -731,7 +757,7 @@ scroll_row:
     ex de,hl
     pop bc
     djnz scroll_row
-    ld hl,0xfe40
+    ld hl,0xfbe8 ; F300h + 19 * 120, last visible row of the 20-row viewport.
     call clear_row
     ret
 clear_row:
@@ -796,5 +822,5 @@ ai: db "AI> ",0
 error_text: db " [ERROR]",0
 ; ACK scratch is in application RAM, never resident state.
 ack_buffer: db 7,0,0
-spinner: db 124,47,45,92
+spinner: db 46,43,42,43
 chat_end:

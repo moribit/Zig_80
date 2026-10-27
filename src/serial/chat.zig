@@ -11,6 +11,7 @@ pub const usage =
     \\  [--provider ollama] [--model gemma3:1b] [--ollama-url http://127.0.0.1:11434]
     \\  [--mock] [--no-deploy] [--max-response-chars 160] [--max-history 4]
     \\  [--timeout 60000] [--session-minutes 30] [--log FILE]
+    \\  [--text-chunk-size 8] (1..32; smaller chunks reduce bursts, with more UART overhead)
     \\ESC/STOP ends the application and returns to the resident loader.
     \\--no-deploy only reconnects to a newly started application waiting for HELLO ACK.
     \\
@@ -27,6 +28,7 @@ const Options = struct {
     voltage: bool = false,
     max_chars: usize = 160,
     max_history: usize = 4,
+    text_chunk_size: u8 = 8,
     timeout_us: u64 = 60_000_000,
     session_us: u64 = 30 * 60_000_000,
 };
@@ -62,6 +64,9 @@ fn parse(args: []const []const u8) !Options {
         } else if (std.mem.eql(u8, flag, "--max-response-chars")) {
             o.max_chars = try std.fmt.parseInt(usize, value, 10);
             if (o.max_chars == 0 or o.max_chars > 160) return error.InvalidResponseLimit;
+        } else if (std.mem.eql(u8, flag, "--text-chunk-size")) {
+            o.text_chunk_size = try std.fmt.parseInt(u8, value, 10);
+            if (o.text_chunk_size == 0 or o.text_chunk_size > 32) return error.InvalidTextChunkSize;
         } else if (std.mem.eql(u8, flag, "--max-history")) {
             o.max_history = try std.fmt.parseInt(usize, value, 10);
             if (o.max_history > 8) return error.InvalidHistoryLimit;
@@ -247,7 +252,7 @@ const Bridge = struct {
         defer if (http) |*connection| connection.close();
         var decoder: Ollama.Decoder = .{};
         var normalizer: Normalizer = .{ .remaining = options.max_chars };
-        var queue: Queue = .{};
+        var queue: Queue = .{ .chunk_size = options.text_chunk_size, .flush_us = 100_000 };
         var done = false;
         var buffer: [32]u8 = undefined;
         const mock_chunks = [_][]const u8{ "HELLO!\n", "I AM GEMMA.\n", "NICE TO MEET YOU." };
@@ -324,7 +329,8 @@ const Bridge = struct {
     }
     fn serve(self: *Bridge, allocator: std.mem.Allocator, options: Options) !void {
         try self.handshake(if (options.mock) "MOCK" else options.model);
-        try self.out.print("Chat ready: model={s} provider={s}; type on PC-8001, ESC/STOP exits\n", .{ options.model, if (options.mock) "mock" else "ollama" });
+        try self.out.print("Chat ready: model={s} provider={s} text_chunk_size={d}; type on PC-8001, ESC/STOP exits\n", .{ options.model, if (options.mock) "mock" else "ollama", options.text_chunk_size });
+        try self.event("text_chunk_size", options.text_chunk_size);
         try self.out.flush();
         var history: History = .{};
         while (!self.closed) {
@@ -353,7 +359,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
     var image = try @import("../assembler/assembler.zig").assembleFile(io, allocator, "examples/pc8001/chat.asm", &failure);
     defer image.deinit();
-    if (image.bytes.items.len > 0x680) return error.ChatCodeOverlapsBuffers;
+    if (image.bytes.items.len > 0x6c0) return error.ChatCodeOverlapsBuffers;
     var log_file: ?std.Io.File = null;
     var log_buffer: [4096]u8 = undefined;
     var log_writer: std.Io.File.Writer = undefined;
@@ -390,6 +396,9 @@ test "chat options require explicit electrical confirmations and bounded resourc
     const options = try parse(&.{ "--target", "pc8001", "--port", "mock", "--enable-tx", "--voltage-confirmed", "--mock" });
     try std.testing.expect(options.mock);
     try std.testing.expectEqual(@as(usize, 160), options.max_chars);
+    try std.testing.expectEqual(@as(u8, 8), options.text_chunk_size);
+    try std.testing.expectError(error.InvalidTextChunkSize, parse(&.{ "--text-chunk-size", "0" }));
+    try std.testing.expectError(error.InvalidTextChunkSize, parse(&.{ "--text-chunk-size", "33" }));
     var history: History = .{};
     var turn: Turn = .{};
     turn.prompt[0] = 'A';

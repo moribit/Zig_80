@@ -8,6 +8,7 @@ pub const Queue = struct {
     len: usize = 0,
     first_us: ?u64 = null,
     flush_us: u64 = 200_000,
+    chunk_size: u8 = max_payload,
 
     /// The producer must stop reading HTTP when this returns Full. Never
     /// overwrite bytes that have not been sent and acknowledged.
@@ -22,8 +23,9 @@ pub const Queue = struct {
     /// or when the producer has finished. Peek does not consume: consume only
     /// after ACK, so an identical frame can be resent after an ACK loss.
     pub fn peek(self: *const Queue, now: u64, done: bool, out: *[max_payload]u8) ?[]const u8 {
+        std.debug.assert(self.chunk_size >= 1 and self.chunk_size <= max_payload);
         if (self.len == 0) return null;
-        const count = @min(self.len, max_payload);
+        const count = @min(self.len, self.chunk_size);
         var boundary: usize = count;
         var newline = false;
         for (0..count) |i| {
@@ -34,7 +36,7 @@ pub const Queue = struct {
                 break;
             }
         }
-        if (!done and !newline and count < max_payload and now -| self.first_us.? < self.flush_us) return null;
+        if (!done and !newline and count < self.chunk_size and now -| self.first_us.? < self.flush_us) return null;
         return out[0..boundary];
     }
 
@@ -61,6 +63,17 @@ test "flush timer sends generated text before done, retaining bytes until ACK" {
     try std.testing.expectEqualStrings("ONE\n", q.peek(400_000, false, &buffer).?);
     try q.consume(4, 400_000);
     try std.testing.expectEqualStrings("TWO", q.peek(400_000, false, &buffer).?);
+}
+
+test "small text chunks flush at their own limit and preserve order until ACK" {
+    var q: Queue = .{ .chunk_size = 8, .flush_us = 100_000 };
+    for ("ABCDEFGHIJKLMNOPQRST") |b| try q.push(b, 1_000);
+    var buffer: [max_payload]u8 = undefined;
+    try std.testing.expectEqualStrings("ABCDEFGH", q.peek(1_000, false, &buffer).?);
+    try q.consume(8, 200_000);
+    try std.testing.expectEqualStrings("IJKLMNOP", q.peek(200_000, false, &buffer).?);
+    try q.consume(8, 300_000);
+    try std.testing.expectEqualStrings("QRST", q.peek(300_000, false, &buffer).?);
 }
 
 test "queue applies bounded backpressure and preserves wraparound order" {

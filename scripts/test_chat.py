@@ -74,15 +74,16 @@ class ChatTests(unittest.TestCase):
         result = subprocess.run([BINARY, 'asm', 'examples/pc8001/hello.asm', '-o', str(OUT/'hello.bin')], capture_output=True)
         assert result.returncode == 0, result.stderr
 
-    def check_chat(self, fault='chat', *extra, strict=True, record=None):
-        with device(fault=fault) as (port, slave, before, state, work, _):
+    def check_chat(self, fault='chat', *extra, strict=True, record=None, turns=2):
+        with device(fault=fault, env={'CHAT_TURNS': str(turns)}) as (port, slave, before, state, work, _):
             log = work/'chat.jsonl'
-            result = subprocess.run(command(port, '--log', str(log), *extra), capture_output=True, timeout=40)
+            result = subprocess.run(command(port, '--log', str(log), *extra), capture_output=True, timeout=90 if turns > 2 else 40)
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             self.assertIn(b'Chat ended; TX released.', result.stdout)
-            self.assertEqual(result.stdout.count(b'Answer complete:'), 2)
+            self.assertEqual(result.stdout.count(b'Answer complete:'), turns)
             self.assertEqual(termios.tcgetattr(slave), before)
             events = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertLessEqual(max(e['count'] for e in events if e.get('event') == 'text_ack'), 8)
             first_text = next(e['host_us'] for e in events if e.get('event') == 'text_ack')
             first_done = next(e['host_us'] for e in events if e.get('event') in ('model_done', 'model_limit'))
             if strict:
@@ -94,6 +95,8 @@ class ChatTests(unittest.TestCase):
             self.assertGreater(len(keepalives), 10)
             self.assertLess(max(b-a for a,b in zip(keepalives, keepalives[1:])), 900000)
             self.assertEqual(state.read_text().splitlines()[-1], 'tx=0')
+            observed_rows = [int(line.split('=')[1]) for line in state.read_text().splitlines() if line.startswith('chat_max_row=')]
+            self.assertLess(max(observed_rows), 20)
             result = run(port, OUT/'hello.bin', '--wait-return')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             if record:
@@ -110,6 +113,13 @@ class ChatTests(unittest.TestCase):
 
     def test_mock_stream_is_displayed_before_done_and_next_deploy_works(self):
         self.check_chat('chat', '--mock')
+
+    def test_smaller_chunks_are_configurable(self):
+        events = self.check_chat('chat', '--mock', '--text-chunk-size', '4')
+        self.assertLessEqual(max(e['count'] for e in events if e.get('event') == 'text_ack'), 4)
+
+    def test_fifteen_turns_keep_prompt_inside_visible_screen(self):
+        self.check_chat('chat', '--mock', turns=15)
 
     def test_http_stream_and_multiturn_history(self):
         with provider() as (url, requests):

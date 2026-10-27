@@ -22,14 +22,14 @@ FLAGS = ["--target", "pc8001", "--enable-tx", "--voltage-confirmed"]
 
 
 @contextlib.contextmanager
-def device(mode="stage1", fault=""):
+def device(mode="stage1", fault="", env=None):
     with tempfile.TemporaryDirectory(prefix="zig80-deploy-") as work:
         master, slave = pty.openpty()
         path = os.ttyname(slave)
         before = termios.tcgetattr(slave)
         state = Path(work) / "state.log"
         mock = subprocess.Popen([MOCK, mode, fault], stdin=master, stdout=master,
-                                stderr=subprocess.PIPE, env={**os.environ, "MOCK_STATE_LOG": str(state)})
+                                stderr=subprocess.PIPE, env={**os.environ, "MOCK_STATE_LOG": str(state), **(env or {})})
         os.close(master)
         try:
             # The fixture assembles real sources before serving USB. Wait for its

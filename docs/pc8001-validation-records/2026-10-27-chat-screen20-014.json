@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-27",
+  "physical_hardware": true,
+  "source_base_commit": "5b756ddd1e93d9b90befd576c773d663ab1c1801",
+  "target": "original NEC PC-8001",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uart": "300bps, 8N1, inverted",
+  "model": "gemma3:1b",
+  "app": {
+    "source": "examples/pc8001/chat.asm",
+    "bytes": 1683,
+    "sha256": "5d050e7a8c6a435ea4426209ac41357f2dbd59117bb43501db636a220c0acd34",
+    "ram_crc16": "F1A3",
+    "code_range": "D000-D692",
+    "prompt_buffer": "D7C0-D7FF",
+    "viewport_rows": 20,
+    "crtc_mode_changed": false
+  },
+  "changes": {
+    "loading": "JIS-safe . + * + at AI>, removed before answer or exit",
+    "text_chunk_size": 8,
+    "flush_target_us": 100000,
+    "artificial_character_delay": false,
+    "scrolling": "rows 2-19; prompts stay inside default 20-row screen"
+  },
+  "pre_fix": {
+    "user_confirmed_inline_position_and_smaller_text_bursts": true,
+    "user_reported_spinner_yen_glyph": true,
+    "user_reported_prompt_disappeared_after_screen_filled": true,
+    "reproduced_25_row_assumption_in_20_row_regression": true
+  },
+  "user_confirmed": {
+    "loading_symbols_correct": true,
+    "continued_chat_after_screen_filled": true,
+    "escape_pressed": true
+  },
+  "completed_turns": 10,
+  "answer_lengths": [
+    35,
+    35,
+    28,
+    34,
+    12,
+    30,
+    21,
+    30,
+    22,
+    25
+  ],
+  "text_frames": 53,
+  "largest_text_payload": 8,
+  "session": {
+    "keepalives": 2255,
+    "max_keepalive_gap_us": 173555,
+    "deploy_retries": 0,
+    "chat_retries": 0,
+    "provider_errors": 0,
+    "process_exit": 0,
+    "tx_released": true,
+    "transport_error_counters": "unchanged from baseline; Transport.finish succeeded"
+  },
+  "resident_return": {
+    "protocol": 1,
+    "resident_crc16": "6BF1",
+    "hello_and_abort_acknowledged": true,
+    "retries": 0,
+    "tx_released": true,
+    "process_exit": 0
+  },
+  "automated_verification": [
+    "142 unit tests, Zig 0.16/0.17 and ReleaseSafe",
+    "15 repeated full-screen turns in all four video width/color combinations; prompts/cursor always below row 20",
+    "chunked HTTP to C Pico bridge to Z80 terminal, default 8 and explicit 4-byte chunks",
+    "15-turn PTY regression records max visible row below 20; next deploy/return succeeds"
+  ],
+  "raw_log": {
+    "path": "zig-out/pc8001/chat-screen20-20261027-01.jsonl",
+    "sha256": "55e005c104d1bba711b6a69925fea4b067a71535a8dea1740ddf30520b5cf7fe",
+    "return": "zig-out/pc8001/chat-screen20-return-20261027-01.jsonl",
+    "conversation_text_not_included_in_this_record": true
+  },
+  "pending": [
+    "30-minute endurance, deferred by user",
+    "physical 80-column mode"
+  ]
+}
