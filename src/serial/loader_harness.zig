@@ -24,6 +24,13 @@ pub const Harness = struct {
     keys: [16]u8 = @splat(0xff), // PC-8001 direct active-low keyboard rows.
     keyboard_polls: usize = 0,
     escape_after_polls: ?usize = null, // Optional physical-input script for CLI fixtures.
+    vrtc: bool = false,
+    cursor_x: u8 = 0,
+    cursor_y: u8 = 24,
+    cursor_enabled: bool = true,
+    cursor_phase: u8 = 0,
+    cursor_writes: usize = 0,
+    invalid_crtc_command: bool = false,
 
     pub fn assemble(io: std.Io, allocator: std.mem.Allocator, name: []const u8, fast_timeout: bool) !assembler.Result {
         var path: [160]u8 = undefined;
@@ -109,6 +116,7 @@ pub const Harness = struct {
             }
             return self.keys[low];
         }
+        if (low == 0x40) return if (self.vrtc) 0x20 else 0;
         if (@as(u8, @truncate(port)) == 0x20) {
             if (self.rx_len == 0 or self.command & 4 == 0) return 0xff;
             const byte = self.rx[self.rx_head];
@@ -148,6 +156,23 @@ pub const Harness = struct {
                 }
             },
             0x30 => self.port30 = value,
+            0x51 => {
+                if (value != 0x81) self.invalid_crtc_command = true;
+                self.cursor_enabled = value & 1 != 0;
+                self.cursor_phase = 1;
+            },
+            0x50 => switch (self.cursor_phase) {
+                1 => {
+                    self.cursor_x = value & 0x7f;
+                    self.cursor_phase = 2;
+                },
+                2 => {
+                    self.cursor_y = value & 0x3f;
+                    self.cursor_phase = 0;
+                    self.cursor_writes += 1;
+                },
+                else => self.invalid_crtc_command = true,
+            },
             else => {},
         }
     }

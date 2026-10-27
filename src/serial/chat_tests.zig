@@ -77,6 +77,16 @@ const Terminal = struct {
         try self.h.steps(1);
         try self.until("chat_loop");
     }
+    fn presentation(self: *Terminal) !void {
+        try self.h.steps(1);
+        try self.until("keyboard");
+        try std.testing.expectEqual(self.get("COL") * self.get("STRIDE"), self.h.cursor_x);
+        try std.testing.expectEqual(self.get("ROW"), self.h.cursor_y);
+        try std.testing.expect(self.h.cursor_enabled);
+        try std.testing.expect(!self.h.invalid_crtc_command);
+        try self.h.steps(1);
+        try self.until("chat_loop");
+    }
 };
 
 test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in all video modes" {
@@ -88,9 +98,15 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
         const before = t.h.bus.memory;
         for (0..25) |row| @memcpy(attributes[row * 40 ..][0..40], t.h.bus.memory[0xf300 + row * 120 + 80 ..][0..40]);
         try t.connect();
+        try t.presentation();
+        const cursor_writes = t.h.cursor_writes;
+        try t.presentation();
+        try std.testing.expectEqual(cursor_writes, t.h.cursor_writes);
         try t.key(2, 2); // A
         try t.key(2, 4); // B
+        try t.presentation();
         try t.key(8, 8); // Backspace
+        try t.presentation();
         try std.testing.expectEqual(@as(u8, 1), t.get("LENGTH"));
         try std.testing.expectEqual(@as(u8, 'A'), t.h.bus.memory[t.addr("PROMPT")]);
         // Hold C for several scans: exactly one character.
@@ -98,6 +114,7 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
         for (0..4) |_| {
             try t.h.steps(1);
             try t.until("chat_loop");
+            try t.presentation();
         }
         t.h.keys[2] = 255;
         try t.h.steps(1);
@@ -140,6 +157,38 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
             if (address >= 0xf300 and address < 0xfeb8) continue;
             try std.testing.expectEqual(old, actual);
         }
+    }
+}
+
+test "Z80 chat loading spinner follows VRTC while preserving cursor text and attributes" {
+    for (0..4) |mode| {
+        var t: Terminal = undefined;
+        try t.init(@intCast(mode));
+        defer t.deinit();
+        try t.connect();
+        t.set("STATE", 2);
+        const before = t.h.bus.memory;
+        const row = t.get("ROW");
+        const col = t.get("COL");
+        const spinner_cell = @as(usize, 0xf378) + 10 * t.get("STRIDE");
+        const frames = [_]u8{ '|', '/', '-', 92 };
+        for (frames) |expected| {
+            for (0..8) |_| {
+                t.h.vrtc = false;
+                try t.presentation();
+                t.h.vrtc = true;
+                try t.presentation();
+            }
+            try std.testing.expectEqual(expected, t.h.bus.memory[spinner_cell]);
+        }
+        try std.testing.expectEqual(row, t.get("ROW"));
+        try std.testing.expectEqual(col, t.get("COL"));
+        for (0..25) |r| try std.testing.expectEqualSlices(u8, before[0xf300 + r * 120 + 80 ..][0..40], t.h.bus.memory[0xf300 + r * 120 + 80 ..][0..40]);
+        try t.feed(.done, 1, "");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.presentation();
+        try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[spinner_cell]);
     }
 }
 

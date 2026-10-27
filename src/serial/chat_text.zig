@@ -8,7 +8,8 @@ pub const Normalizer = struct {
     remaining: usize = 160,
 
     /// Returns at most one display character per input byte. Non-ASCII UTF-8
-    /// code points are replaced by '?'; malformed continuations fail closed.
+    /// punctuation is folded to ASCII; other non-ASCII becomes '?'.
+    /// Malformed continuations fail closed.
     /// Input may be split at arbitrary byte boundaries.
     pub fn feed(self: *Normalizer, byte: u8) !?u8 {
         if (self.remaining == 0) return null;
@@ -17,14 +18,20 @@ pub const Normalizer = struct {
                 self.pending[self.used] = byte;
                 self.used += 1;
                 if (self.used == self.needed) {
-                    _ = std.unicode.utf8Decode(self.pending[0..self.used]) catch {
+                    const codepoint = std.unicode.utf8Decode(self.pending[0..self.used]) catch {
                         self.needed = 0;
                         self.used = 0;
                         return error.InvalidUtf8;
                     };
                     self.needed = 0;
                     self.used = 0;
-                    return self.emit('?');
+                    return self.emit(switch (codepoint) {
+                        0x2018...0x201b, 0x02bc, 0x2032 => '\'',
+                        0x201c...0x201f, 0x2033 => '"',
+                        0x2010...0x2015, 0x2212 => '-',
+                        0x00a0, 0x202f => ' ',
+                        else => '?',
+                    });
                 }
                 return null;
             }
@@ -73,4 +80,15 @@ test "invalid and truncated UTF-8 are handled without exceeding the limit" {
     _ = try n.feed(0xe3);
     try std.testing.expectEqual(@as(?u8, '?'), n.finish());
     try std.testing.expectEqual(@as(?u8, null), n.finish());
+}
+
+test "typographic contractions quotes dashes and spaces normalize to readable ASCII" {
+    var n: Normalizer = .{};
+    var output: [80]u8 = undefined;
+    var used: usize = 0;
+    for ("It’s ‘fine’ — “don’t”\u{a0}stop.") |byte| if (try n.feed(byte)) |ascii| {
+        output[used] = ascii;
+        used += 1;
+    };
+    try std.testing.expectEqualStrings("IT'S 'FINE' - \"DON'T\" STOP.", output[0..used]);
 }

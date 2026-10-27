@@ -38,11 +38,13 @@ def provider(stall=False):
                 time.sleep(2)
                 return
             try:
-                for text, done in [('HELLO!\n', False), ('I AM GEMMA.\n', False), ('NICE TO MEET YOU.', True)]:
-                    data = (json.dumps({'message': {'content': text}, 'done': done}) + '\n').encode()
+                for text, done in [('HELLO!\n', False), ('It’s “fine” — isn’t it?\n', False), ('NICE TO MEET YOU.', True)]:
+                    data = (json.dumps({'message': {'content': text}, 'done': done}, ensure_ascii=False) + '\n').encode()
                     # Deliberately split JSON across HTTP chunks, including in
                     # the middle of escaped strings, not just at JSON boundaries.
-                    for chunk in (data[:13], data[13:]):
+                    unicode_start = data.find(b'\xe2')
+                    split = unicode_start+1 if unicode_start >= 0 else 13
+                    for chunk in (data[:split], data[split:]):
                         self.wfile.write(f'{len(chunk):x}\r\n'.encode()+chunk+b'\r\n')
                         self.wfile.flush()
                     time.sleep(.4)
@@ -116,6 +118,8 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(all(r['stream'] for r in requests))
         self.assertEqual([len(r['messages']) for r in requests], [2, 4])
         self.assertEqual(requests[0]['messages'][-1]['content'], 'HELLO')
+        self.assertIn('IT\'S "FINE" - ISN\'T IT?', requests[1]['messages'][2]['content'])
+        self.assertNotIn('IT?S', requests[1]['messages'][2]['content'])
 
     def test_corrupt_frame_is_retried(self):
         events = self.check_chat('chat-corrupt', '--mock')

@@ -1,5 +1,6 @@
 ; PC-8001 ASCII chat terminal. Resident ABI: DI, private stack, RET.
-; No ROM calls, no display mode/attribute/UART configuration changes.
+; No ROM calls or display mode/attribute/UART configuration changes.
+; uPD3301 cursor position only: 81h to port 51h, X/Y to 50h.
 ; Keyboard mapping: MAME src/mame/nec/pc88_kbd.cpp (original PC8001).
 org 0xd000
 PROMPT equ 0xd680
@@ -21,16 +22,22 @@ EXITING equ 0xd77b
 TXLEN equ 0xd77c
 LAST_STATUS equ 0xd77d
 LAST_FAULT equ 0xd77e
+CURSOR_POS equ 0xd780
+VRTC_LAST equ 0xd782
+ANIM_COUNT equ 0xd783
+ANIM_PHASE equ 0xd784
 POLL_LIMIT equ 0
 
     xor a
     ld hl,KEYS
-    ld b,32
+    ld b,40
 init_state:
     ld (hl),a
     inc hl
     djnz init_state
     ld (ENTRY_SP),sp
+    ld hl,0xffff
+    ld (CURSOR_POS),hl
     ld a,(0xea66)
     and 1
     ld c,a
@@ -57,6 +64,7 @@ clear_initial:
     ld (ROW),a
     xor a
     ld (COL),a
+    call cursor_update
     ld a,1
     ld (TX),a
     ld a,2
@@ -67,6 +75,8 @@ clear_initial:
     ld (TX+5),a
     call reliable
 chat_loop:
+    call cursor_update
+    call animate
     in a,(0x21)
     and 0x38
     jp nz,fault_exit
@@ -81,11 +91,6 @@ chat_loop:
     call apply_frame
     jr chat_loop
 keyboard:
-    ld a,(STATE)
-    cp 1
-    jr nz,keyboard_read
-    call cell
-    ld (hl),95
 keyboard_read:
     call key
     or a
@@ -102,10 +107,6 @@ key_debounce:
     ld a,(STATE)
     cp 1
     jr nz,chat_loop
-    push bc
-    call cell
-    ld (hl),32
-    pop bc
     ld a,b
     cp 13
     jr z,submit
@@ -136,6 +137,9 @@ submit:
     ld a,(LENGTH)
     or a
     jr z,chat_loop
+    xor a
+    ld (ANIM_COUNT),a
+    ld (ANIM_PHASE),a
     ld hl,busy_text
     call status
     call newline
@@ -604,6 +608,67 @@ key_lookup:
     ret
 
 ; Character-only VRAM operations leave all 1000 attribute bytes unchanged.
+; CRTC columns use 80-byte character slots, so 40-column X is doubled.
+cursor_update:
+    ld a,(COL)
+    ld l,a
+    ld a,(ROW)
+    ld h,a
+    ld de,(CURSOR_POS)
+    or a
+    sbc hl,de
+    ret z
+    add hl,de
+    ld (CURSOR_POS),hl
+    ld a,0x81
+    out (0x51),a
+    ld a,(STRIDE)
+    cp 2
+    ld a,l
+    jr nz,cursor_x
+    add a,a
+cursor_x:
+    out (0x50),a
+    ld a,h
+    out (0x50),a
+    ret
+; One phase per eight VRTC rising edges. Never wait for retrace or UART.
+animate:
+    in a,(0x40)
+    and 0x20
+    ld b,a
+    ld a,(VRTC_LAST)
+    cp b
+    ret z
+    ld a,b
+    ld (VRTC_LAST),a
+    or a
+    ret z
+    ld a,(STATE)
+    cp 2
+    ret nz
+    ld hl,ANIM_COUNT
+    inc (hl)
+    ld a,(hl)
+    and 7
+    ret nz
+    ld a,(ANIM_PHASE)
+    ld e,a
+    inc a
+    and 3
+    ld (ANIM_PHASE),a
+    ld d,0
+    ld hl,spinner
+    add hl,de
+    ld b,(hl)
+    ld hl,0xf382
+    ld a,(STRIDE)
+    dec a
+    jr z,spinner_store
+    ld hl,0xf38c
+spinner_store:
+    ld (hl),b
+    ret
 status:
     ld a,(ROW)
     push af
@@ -731,4 +796,5 @@ ai: db "AI> ",0
 error_text: db " [ERROR]",0
 ; ACK scratch is in application RAM, never resident state.
 ack_buffer: db 7,0,0
+spinner: db 124,47,45,92
 chat_end:

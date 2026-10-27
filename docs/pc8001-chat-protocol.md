@@ -45,8 +45,10 @@ mid-conversation reconnect or automatic sequence reset.
 ASCII validation precedes rendering; CRC/length failure drops the frame and
 sync search resumes. The PC remembers the entire prior frame including CRC;
 the host compares kind, length and payload. UTF-8 is host-only and normalized
-to uppercase ASCII, question marks for non-ASCII, and spaces for controls
-except LF. PROMPT permits 20h–7Eh.
+to uppercase ASCII. Typographic quotes, dashes and nonbreaking spaces are
+folded to their ASCII counterparts; other non-ASCII becomes a question mark,
+and controls except LF become spaces. PROMPT permits 20h–7Eh. These display
+changes do not change protocol framing or the C1 handshake.
 
 CANCEL is ACKed before return; the PC drains its transmitter before RET.
 ESC/STOP initiates reliable CANCEL. Host Ctrl-C attempts a bounded CANCEL and

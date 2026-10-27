@@ -41,14 +41,29 @@ the host and READY on the PC. Do not enter TERM or rerun USR.
 The original active-low matrix is scanned directly, without ROM calls or
 interrupts, based on [MAME's PC-8001 keyboard](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc88_kbd.cpp).
 40/80-column mode is detected from EA66h. The header shows the model label;
-the status row shows CONNECTING, READY or RECEIVING. Input has an underscore
-cursor, output wraps and console rows scroll. Only character cells are written:
-all 1000 attribute bytes and the video/UART modes are preserved. Start from a
+the status row shows CONNECTING, READY or RECEIVING. The hardware blinking
+cursor follows both input and answer text, including wrapping, Backspace
+and scrolling. It uses the uPD3301 cursor-position command (81h at port 51h,
+column/row at 50h); 40-column positions use twice the displayed column. The
+existing cursor shape/blink timing is retained and unchanged positions are not
+reloaded. Timing/attribute/UART configuration is preserved. VRAM writes touch
+only character cells; all 1000 attribute bytes and the video/UART modes are
+preserved. Start from a
 normal text screen; arbitrary leftover graphics attributes are not converted.
 Screen contents are not restored on exit.
 
-英字は大文字へ統一します。UTF-8の非ASCII文字は「?」、LF以外の制御文字は空白へ
-変換します。属性と表示モードを維持し、文字領域だけをクリア・更新します。
+英字は大文字へ統一します。曲がった単引用符・二重引用符はASCIIの引用符へ、
+ダッシュは「-」、改行禁止空白は通常の空白へ変換します。それ以外の非ASCII文字は
+「?」、LF以外の制御文字は空白になります。点滅カーソルは入力・回答の末尾に追従します。
+回答待ちの間はステータス行で「| / - \\」が回転し、完了すると消えます。
+属性と表示モードを維持し、文字領域だけをクリア・更新します。
+
+The RECEIVING status animates a four-phase spinner every eight VRTC rising
+edges (port 40h, bit 5). It never waits for retrace or adds UART/display delays;
+frame reception can temporarily pause the indicator. DONE/ERROR clears it via
+the READY status. Cursor/VRTC behavior follows the
+[MAME PC-8001 port map](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc8001.cpp)
+and [uPD3301 command implementation](https://github.com/mamedev/mame/blob/master/src/devices/video/upd3301.cpp).
 
 ## Streaming and safety / ストリーミング
 
@@ -80,13 +95,14 @@ session. Optional logs contain response text.
 
 | Range | Purpose |
 |---|---|
-| D000–D5F7 | 1528-byte app, tables and ACK scratch |
+| D000–D662 | 1635-byte app, tables and ACK scratch |
 | D680–D6BF | 64-byte prompt |
 | D6C0–D6E6 | receive frame |
 | D700–D726 | transmit frame |
 | D730–D754 | exact previous received frame |
 | D760–D769 | keyboard edge state |
 | D770–D77E | saved stack, display and protocol state |
+| D780–D787 | cached cursor position and VRTC/spinner state |
 | E700–E7FF | existing resident private stack |
 
 Before ARM, code is checked not to cross D680h. Upload uses the resident's
@@ -117,10 +133,15 @@ last-token timestamp. PTY timing is accelerated and does not prove physical
 UART timing. A live-model record is generated in
 zig-out/pc8001/deploy-tests/chat-live-ollama.json.
 
-On the physical PC-8001, the 1528-byte image passed RAM CRC A7A1, EXEC and
+For the original release, the physical PC-8001's 1528-byte image passed RAM CRC A7A1, EXEC and
 HELLO/READY handshake on 2026-10-27. Physical input, progressive answers for two turns, ESC
 exit and a subsequent resident HELLO/ABORT succeeded. The host validated
 transport counters and released TX. See the [physical record](pc8001-validation-records/2026-10-27-chat-014.json). The 30-minute endurance test is pending at the
 user's request. Earlier loader/game success is not chat validation.
+
+The UI refinement image is 1635 bytes (CRC16 4B3F). Its typographic punctuation,
+cursor tracking, VRTC spinner, preserved attributes and protected RAM pass
+automated tests, including UTF-8 split across HTTP chunks. Physical upload and
+HELLO/READY have succeeded; visual confirmation of these refinements is pending.
 
 See [Chat Protocol v1](pc8001-chat-protocol.md).

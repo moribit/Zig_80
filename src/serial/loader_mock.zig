@@ -264,6 +264,7 @@ pub fn main(init: std.process.Init) !void {
         }
         c.loader_bridge_tick(ctx.now());
         if (ctx.started and ctx.now() >= ctx.start_at and !std.mem.eql(u8, mode, "silent")) {
+            ctx.h.vrtc = ctx.now() % 16_667 < 2_000;
             ctx.chatScript();
             var byte: u8 = 0;
             while (c.loader_bridge_pop(&byte)) {
