@@ -132,6 +132,7 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
             const ack = try t.next();
             try std.testing.expectEqual(wire.Kind.ack, ack.kind);
             try t.until("chat_loop");
+            try t.presentation();
         }
         const row_before = t.get("ROW");
         const col_before = t.get("COL");
@@ -201,6 +202,7 @@ test "Z80 chat prompt bounds 64 bytes and sends three acknowledged segments with
     try t.key(7, 64); // ?
     t.h.keys[8] = 255;
     for (0..65) |_| try t.key(2, 2);
+    try t.presentation();
     try std.testing.expectEqual(@as(u8, 64), t.get("LENGTH"));
     try std.testing.expectEqual(@as(u8, '?'), t.h.bus.memory[t.addr("PROMPT")]);
     t.h.keys[1] = 0x7f;

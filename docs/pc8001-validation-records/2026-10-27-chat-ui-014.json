@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-27",
+  "physical_hardware": true,
+  "code_commit": "b4d1959d6959a95de9b5494f7e14d5a4a4f0bc06",
+  "target": "original NEC PC-8001",
+  "transport": "Pico 2 firmware 0.1.4, S10, inverted 300bps 8N1",
+  "model": "gemma3:1b",
+  "ollama_model_id": "97558784bdc9",
+  "app": {
+    "source": "examples/pc8001/chat.asm",
+    "bytes": 1635,
+    "sha256": "1f05d6ed76550c3ecc6c43d3949fc4e8337b5678d4f44c7dc5f369ae7b60f5f7",
+    "ram_crc16": "4B3F",
+    "code_range": "D000-D662",
+    "work_end_inclusive": "D787"
+  },
+  "changes": {
+    "punctuation": "typographic quotes/dashes/nonbreaking spaces folded to ASCII",
+    "cursor": "uPD3301 load position 81h -> port 51h, scaled X/Y -> port 50h; no display timing reset",
+    "loading": "status spinner, one phase per eight VRTC rising edges; no blocking waits"
+  },
+  "user_confirmed": {
+    "readable_apostrophe": true,
+    "cursor_follows_input_and_answer": true,
+    "waiting_spinner_animates": true,
+    "escape_pressed": true
+  },
+  "prompt_instruction": "REPEAT IT'S WORKING",
+  "received_prompt_lengths": [
+    19
+  ],
+  "normalized_answer": "UNDERSTOOD. LET'S BEGIN. \n",
+  "answer_characters": 26,
+  "receive_side_timing": {
+    "first_text_ack_us": 108980607665,
+    "model_done_received_us": 108981692192,
+    "text_before_done_received": true,
+    "model_internal_end_not_instrumented": true
+  },
+  "session": {
+    "keepalives": 1880,
+    "max_keepalive_gap_us": 172580,
+    "deploy_retries": 0,
+    "chat_retries": 0,
+    "provider_errors": 0,
+    "process_exit": 0,
+    "tx_released": true,
+    "transport_error_counters": "unchanged from session baseline; Transport.finish succeeded"
+  },
+  "resident_return": {
+    "hello_protocol": 1,
+    "resident_crc16": "6BF1",
+    "abort_acknowledged": true,
+    "process_exit": 0,
+    "tx_released": true
+  },
+  "automated_verification": [
+    "140 unit tests on Zig 0.16 and 0.17, including ReleaseSafe",
+    "40/80-column cursor positions, wrapping, Backspace, scrolling and unchanged cursor not reloaded",
+    "VRTC spinner phases, clearing on DONE, preserved attributes and protected RAM",
+    "chunked HTTP with UTF-8 code point split across chunks and normalized apostrophes in conversation history"
+  ],
+  "raw_log": {
+    "path": "zig-out/pc8001/chat-ui-20261027-01.jsonl",
+    "sha256": "41d68e441effba875baabe529340fac4a13cd4fa3dabb7d239c5b0a63d76152c",
+    "return": "zig-out/pc8001/chat-ui-return-20261027-01.jsonl"
+  },
+  "not_measured": [
+    "physical spinner frame rate",
+    "physical 80-column visual test",
+    "30-minute endurance, pending at user request"
+  ]
+}

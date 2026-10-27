@@ -142,6 +142,8 @@ user's request. Earlier loader/game success is not chat validation.
 The UI refinement image is 1635 bytes (CRC16 4B3F). Its typographic punctuation,
 cursor tracking, VRTC spinner, preserved attributes and protected RAM pass
 automated tests, including UTF-8 split across HTTP chunks. Physical upload and
-HELLO/READY have succeeded; visual confirmation of these refinements is pending.
+HELLO/READY, readable apostrophes, cursor following, spinner animation and ESC
+return were confirmed on the physical PC-8001. A subsequent resident HELLO/ABORT
+also passed and TX was released. See the [UI physical record](pc8001-validation-records/2026-10-27-chat-ui-014.json).
 
 See [Chat Protocol v1](pc8001-chat-protocol.md).
