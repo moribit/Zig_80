@@ -42,7 +42,7 @@ pub const Normalizer = struct {
     }
     fn emit(self: *Normalizer, c: u8) u8 {
         self.remaining -= 1;
-        return c;
+        return std.ascii.toUpper(c);
     }
     pub fn finish(self: *Normalizer) ?u8 {
         if (self.needed == 0 or self.remaining == 0) return null;

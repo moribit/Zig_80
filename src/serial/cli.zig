@@ -3,6 +3,9 @@ const wire = @import("protocol.zig");
 const serial_port = @import("port.zig");
 const Port = serial_port.Port;
 var interrupted = std.atomic.Value(bool).init(false);
+pub fn clearInterrupt() void {
+    interrupted.store(false, .monotonic);
+}
 fn onSignal(_: std.posix.SIG) callconv(.c) void {
     interrupted.store(true, .monotonic);
 }

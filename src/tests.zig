@@ -3,6 +3,9 @@ test {
     _ = @import("serial/chat_text.zig");
     _ = @import("serial/chat_ollama.zig");
     _ = @import("serial/chat_queue.zig");
+    _ = @import("serial/chat_tests.zig");
+    _ = @import("serial/chat_http.zig");
+    _ = @import("serial/chat.zig");
     _ = @import("serial/mini_tests.zig");
     _ = @import("serial/cassette.zig");
     _ = @import("serial/loader_protocol.zig");

@@ -8,7 +8,10 @@ PC-8001 / Pico 2 experimental serial validation (Zig 0.17.0):
 [build and safety](hardware/pico2-pc8001/README.md), [staged measurement procedure](docs/pc8001-serial-validation.md).
 Physical S10 strings have passed in both directions. The [Serial Deploy loader](docs/pc8001-serial-loader.md)
 provides CRC-checked bootstrap, protected RAM transfer, explicit execution and repeat deployment;
-physical binary/loader validation is separate and remains pending.
+physical bootstrap, binary transfer, execution and return have passed on the user's PC-8001.
+The [local LLM chat terminal](docs/pc8001-chat.md) streams Ollama/Gemma answers
+over the same bridge. Two physical chat turns and ESC return to the resident
+were verified; long-duration endurance remains pending.
 
 Zig_80 is a dependency-free integrated environment for writing, assembling, running, debugging, and verifying Z80 programs. It is useful for learning, but is designed as a general development tool for newcomers, experienced assembly programmers, retro-game authors, emulator developers, and headless CI workflows. The current MVP targets Zig 0.16 and combines assembly, execution, disassembly, debugging, tracing, and 1bpp display output in a single binary.
 

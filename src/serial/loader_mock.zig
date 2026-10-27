@@ -3,6 +3,7 @@
 const std = @import("std");
 const Harness = @import("loader_harness.zig").Harness;
 const wire = @import("loader_protocol.zig");
+const chat = @import("chat_protocol.zig");
 const c = struct {
     extern fn loader_bridge_init() void;
     extern fn loader_bridge_connected(bool) void;
@@ -39,6 +40,18 @@ const Context = struct {
     output_len: usize = 0,
     incoming: wire.Parser = .{},
     tx_cursor: usize = 0,
+    chat_input: chat.Parser = .{},
+    chat_output: chat.Parser = .{},
+    chat_key: usize = 0,
+    chat_down: bool = false,
+    chat_at: u64 = 0,
+    chat_waited: bool = false,
+    chat_turns: usize = 0,
+    chat_limit: usize = 2,
+    chat_idle: bool = false,
+    chat_visible: bool = false,
+    chat_watch: ?u8 = null,
+    chat_returned: bool = false,
     fn now(self: *Context) u64 {
         return @import("transport.zig").nowUs(self.io);
     }
@@ -67,6 +80,15 @@ const Context = struct {
     fn receive(self: *Context, byte: u8) !void {
         var actual = byte;
         const app = self.h.cpu.registers.pc >= wire.app_min and self.h.cpu.registers.pc < wire.app_end;
+        if (app and std.mem.startsWith(u8, self.fault, "chat")) {
+            if (try self.chat_input.feed(byte)) |frame| {
+                if (!self.chat_visible and frame.kind == .text and frame.len > 0) self.chat_watch = frame.seq +% 1;
+                if (!self.used_fault and std.mem.eql(u8, self.fault, "chat-corrupt") and frame.kind == .text) {
+                    actual ^= 1;
+                    self.used_fault = true;
+                }
+            }
+        }
         if (self.resident and !app) if (try self.incoming.feed(byte)) |frame| {
             if (frame.kind == wire.data and !self.used_fault) {
                 if (std.mem.eql(u8, self.fault, "corrupt-data")) {
@@ -94,6 +116,19 @@ const Context = struct {
         // Stage0 notification and application-owned UART are opaque raw bytes.
         const app = self.h.cpu.registers.pc >= wire.app_min and self.h.cpu.registers.pc < wire.app_end;
         if (!self.resident or app) {
+            if (app and std.mem.startsWith(u8, self.fault, "chat")) {
+                const frame = self.chat_output.feed(byte) catch return;
+                if (frame) |f| {
+                    if (!self.used_fault and std.mem.eql(u8, self.fault, "chat-drop-ack") and f.kind == .ack and f.seq == 1) {
+                        self.used_fault = true;
+                        return;
+                    }
+                    var bytes: [chat.max_frame]u8 = undefined;
+                    const encoded = chat.encode(&bytes, f.kind, f.seq, f.payload[0..f.len]) catch unreachable;
+                    for (encoded) |value| c.loader_bridge_rx(value, self.now());
+                }
+                return;
+            }
             c.loader_bridge_rx(byte, self.now());
             return;
         }
@@ -135,6 +170,53 @@ const Context = struct {
             }
         }
         for (self.output[0..length]) |value| c.loader_bridge_rx(value, self.now());
+        if (std.mem.startsWith(u8, self.fault, "chat") and self.output[3] == 0x82) self.chat_returned = true;
+    }
+
+    fn chatScript(self: *Context) void {
+        if (!std.mem.startsWith(u8, self.fault, "chat")) return;
+        const app = self.h.cpu.registers.pc >= wire.app_min and self.h.cpu.registers.pc < wire.app_end;
+        if (!app) return;
+        const state = self.h.bus.memory[0xd77a];
+        if (state == 2) self.chat_waited = true;
+        if (state == 1 and self.chat_waited) {
+            self.chat_waited = false;
+            self.chat_turns += 1;
+            self.chat_key = 0;
+        }
+        if (!self.chat_visible) {
+            if (self.chat_watch) |sequence| {
+                if (self.h.bus.memory[0xd778] == sequence) {
+                    self.chat_visible = true;
+                    if (self.log) |fd| {
+                        var buffer: [96]u8 = undefined;
+                        const line = std.fmt.bufPrint(&buffer, "chat_text_visible_us={d}\n", .{self.now()}) catch unreachable;
+                        _ = writeAll(fd, line);
+                    }
+                }
+            }
+        }
+        if (self.now() < self.chat_at) return;
+        if (self.chat_down) {
+            @memset(&self.h.keys, 255);
+            self.chat_down = false;
+            self.chat_key += 1;
+            self.chat_at = self.now() + 20_000;
+            return;
+        }
+        if (state != 1) return;
+        if (self.chat_turns >= self.chat_limit) {
+            if (self.chat_idle) return;
+            self.h.keys[9] = 0x7f;
+            return;
+        }
+        const rows = [_]usize{ 3, 2, 3, 3, 3, 1 };
+        const masks = [_]u8{ 1, 32, 16, 16, 128, 128 };
+        if (self.chat_key < rows.len) {
+            self.h.keys[rows[self.chat_key]] = ~masks[self.chat_key];
+            self.chat_down = true;
+            self.chat_at = self.now() + 20_000;
+        }
     }
 };
 pub fn main(init: std.process.Init) !void {
@@ -142,6 +224,8 @@ pub fn main(init: std.process.Init) !void {
     const mode = if (args.len > 1) args[1] else "stage1";
     const ctx = try init.arena.allocator().create(Context);
     ctx.* = .{ .io = init.io, .mode = mode, .fault = if (args.len > 2) args[2] else "" };
+    if (init.environ_map.get("CHAT_TURNS")) |count| ctx.chat_limit = try std.fmt.parseInt(usize, count, 10);
+    ctx.chat_idle = init.environ_map.get("CHAT_IDLE_AFTER_TURNS") != null;
     try ctx.h.init(init.io, init.arena.allocator(), std.mem.eql(u8, mode, "stage0"), false);
     ctx.resident = !std.mem.eql(u8, mode, "stage0") and !std.mem.eql(u8, mode, "mini");
     if (std.mem.eql(u8, mode, "mini")) try ctx.h.initMini(init.io, init.arena.allocator());
@@ -157,7 +241,7 @@ pub fn main(init: std.process.Init) !void {
     if (init.environ_map.get("MOCK_STATE_LOG")) |path| ctx.log = try std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, 0o600);
     defer if (ctx.log) |fd| {
         var text: [128]u8 = undefined;
-        const line = std.fmt.bufPrint(&text, "exec_entries={d}\n", .{ctx.h.application_entries}) catch unreachable;
+        const line = std.fmt.bufPrint(&text, "exec_entries={d}\nchat_turns={d}\nchat_returned={d}\n", .{ ctx.h.application_entries, ctx.chat_turns, @intFromBool(ctx.chat_returned) }) catch unreachable;
         _ = Context.writeAll(fd, line);
         _ = std.posix.system.close(fd);
     };
@@ -180,6 +264,7 @@ pub fn main(init: std.process.Init) !void {
         }
         c.loader_bridge_tick(ctx.now());
         if (ctx.started and ctx.now() >= ctx.start_at and !std.mem.eql(u8, mode, "silent")) {
+            ctx.chatScript();
             var byte: u8 = 0;
             while (c.loader_bridge_pop(&byte)) {
                 try ctx.receive(byte);
@@ -192,6 +277,10 @@ pub fn main(init: std.process.Init) !void {
                     ctx.tx_cursor += 1;
                 }
                 if (ctx.h.cpu.registers.pc == wire.stage1_address) ctx.resident = true;
+            }
+            if (ctx.tx_cursor == ctx.h.tx_len) {
+                ctx.h.tx_len = 0;
+                ctx.tx_cursor = 0;
             }
         }
         c.loader_bridge_flush();

@@ -4,6 +4,36 @@ const transport = @import("transport.zig");
 const Transport = transport.Transport;
 const assets = @import("loader_assets.zig");
 
+/// Upload and execute using an already leased transport. Ownership stays with
+/// the caller, allowing the application protocol to continue without a Hi-Z
+/// transition, DTR toggle, RX reset, or second USB session.
+pub fn uploadApplication(channel: *Transport, payload: []const u8, out: *std.Io.Writer) !u8 {
+    if (!wire.validRange(wire.app_min, payload.len, wire.app_min)) return error.UnsafeDeployRange;
+    var client: Client = .{ .io = channel, .timeout = 3_000_000, .retries = 2, .out = out };
+    _ = try client.hello();
+    var metadata: [9]u8 = @splat(0);
+    wire.put16(&metadata, wire.app_min);
+    wire.put16(metadata[2..], @intCast(payload.len));
+    wire.put16(metadata[4..], wire.app_min);
+    const checksum = wire.crc(payload);
+    wire.put16(metadata[6..], checksum);
+    _ = try client.exchange(wire.begin, &metadata);
+    var offset: usize = 0;
+    while (offset < payload.len) {
+        const count = @min(wire.max_data, payload.len - offset);
+        const reply = try client.exchange(wire.data, payload[offset..][0..count]);
+        offset += count;
+        if (wire.read16(reply.bytes[6..]) != offset) return error.UnexpectedLoaderOffset;
+    }
+    const verified = try client.exchange(wire.verify, "");
+    if (wire.read16(verified.bytes[6..]) != checksum or verified.bytes[8] & 2 == 0) return error.ImageVerificationFailed;
+    const sequence = client.sequence;
+    _ = try client.exchange(wire.exec, "");
+    try out.print("Chat application verified and EXEC acknowledged: {d} bytes CRC16={X:0>4}\n", .{ payload.len, checksum });
+    try out.flush();
+    return sequence;
+}
+
 pub const usage =
     \\zig80 deploy FILE --target pc8001 --port PATH --enable-tx --voltage-confirmed
     \\  [--load-address 0xD000] [--entry ADDRESS] [--loader mini|stage1|stage0]

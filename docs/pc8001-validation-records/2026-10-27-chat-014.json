@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-27",
+  "physical_hardware": true,
+  "target": "original NEC PC-8001",
+  "transport": "Pico 2 firmware 0.1.4, S10, 300bps 8N1 inverted",
+  "model": "gemma3:1b",
+  "ollama_model_id": "97558784bdc9",
+  "app": {
+    "source": "examples/pc8001/chat.asm",
+    "bytes": 1528,
+    "sha256": "378cdb639577f0038a215f38764f17d1c45d089a924c2f48e6690d7373265715",
+    "ram_crc16": "A7A1",
+    "load": "D000",
+    "code_end_inclusive": "D5F7",
+    "work_end_inclusive": "D77E"
+  },
+  "deploy": {
+    "ram_crc_verified": true,
+    "exec_acknowledged": true,
+    "loader_retries": 0
+  },
+  "user_confirmed": {
+    "title_model_ready_prompt": true,
+    "keyboard_input": true,
+    "progressive_first_answer": true,
+    "second_answer": true,
+    "escape_pressed_after_second_answer": true
+  },
+  "prompts": [
+    "WHAT IS A Z80?",
+    "SAY HELLO."
+  ],
+  "received_prompt_lengths": [
+    14,
+    10
+  ],
+  "answers": [
+    {
+      "ascii_characters": 119,
+      "text": "A Z80 IS A SMALL COMPUTER. IT?S OLD. IT WAS USED IN MANY GAMES.  IT?S CLEVER. \n\nIT?S A SIMPLE MACHINE.  IT?S A CLASSIC.",
+      "completed_us": 106932941252
+    },
+    {
+      "ascii_characters": 28,
+      "text": "HELLO THERE. HOW CAN I HELP?",
+      "completed_us": 106990757995
+    }
+  ],
+  "receive_side_timing": {
+    "first_text_ack_us": 106922401688,
+    "first_model_done_received_us": 106931517838,
+    "first_text_ack_before_done": true,
+    "lead_us": 9116150,
+    "caveat": "Acknowledgement proves application processing before host received DONE; model internal generation-end time was not instrumented."
+  },
+  "session": {
+    "keepalives": 1609,
+    "max_keepalive_gap_us": 171478,
+    "chat_retries": 0,
+    "provider_errors": 0,
+    "process_exit": 0,
+    "tx_released": true,
+    "transport_counter_validation": "Transport.finish succeeded: monitored UART/overflow/timeout counters unchanged from baseline."
+  },
+  "resident_return": {
+    "hello_protocol": 1,
+    "resident_crc16": "6BF1",
+    "abort_acknowledged": true,
+    "loader_retries": 0,
+    "tx_released": true,
+    "process_exit": 0
+  },
+  "raw_logs": {
+    "chat": "zig-out/pc8001/chat-physical-20261027-01.jsonl",
+    "chat_sha256": "da4d0c7160a1bbe06048f9ce52e0302378b3528a5a58708bf59e99a1a596e71e",
+    "return": "zig-out/pc8001/chat-return-20261027-01.jsonl"
+  },
+  "not_verified": [
+    "physical 80-column mode",
+    "physical Backspace and all punctuation",
+    "physical long-term endurance (pending at user request)",
+    "physical induced USB disconnection and retransmission; mock-tested"
+  ]
+}

@@ -25,6 +25,7 @@ const usage =
     \\  zig80 explain <source.asm>
     \\  zig80 serial --help
     \\  zig80 deploy --help
+    \\  zig80 chat --help
     \\  zig80 tui [source.asm] [--profile classic|handheld] [--clock-hz N]
     \\  zig80 --help
     \\
@@ -47,6 +48,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     const command = args[1];
+    if (std.mem.eql(u8, command, "chat")) return @import("serial/chat.zig").run(io, allocator, args[2..], out, errout);
     if (std.mem.eql(u8, command, "deploy")) return @import("serial/deploy.zig").run(io, allocator, args[2..], out, errout);
     if (std.mem.eql(u8, command, "serial")) return serial.run(io, allocator, args[2..], out, errout);
     if (std.mem.eql(u8, command, "asm")) try asmCommand(io, allocator, args[2..], out, errout) else if (std.mem.eql(u8, command, "run")) try runCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "disasm")) try disasmCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "debug")) try debugCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "test")) try testCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "explain")) try explainCommand(io, allocator, args[2..], out) else if (std.mem.eql(u8, command, "tui")) try tuiCommand(io, allocator, args[2..], out, errout, init.environ_map) else {

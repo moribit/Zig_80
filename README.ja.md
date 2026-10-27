@@ -7,7 +7,9 @@
 PC-8001 / Pico 2の通信検証環境（Zig 0.17.0）を追加しました。
 [ビルド](hardware/pico2-pc8001/README.md)・[測定と段階別検証手順](docs/pc8001-serial-validation.md)を参照してください。
 実機S10の両方向文字列通信を確認しました。[Serial Deploy](docs/pc8001-serial-loader.md)は
-CRC付きブートストラップ・RAM保護・明示実行・繰り返し転送に対応し、実機バイナリ転送の検証は別に扱います。
+CRC付きブートストラップ・RAM保護・明示実行・繰り返し転送に対応し、実機で転送・実行・復帰を確認しています。
+[ローカルLLMチャット](docs/pc8001-chat.md)はOllama/Gemmaの回答を逐次表示し、
+実機で2ターンの会話とESCによるローダー復帰を確認しました。長時間耐久試験は保留です。
 
 Zig_80は、Z80プログラムを書く、アセンブルする、実行する、デバッグする、検証するための依存なし統合環境です。学習にも利用できますが、初心者、Assembly経験者、Retro Game開発者、Emulator開発者、Headless CI利用者を対象とする通常の開発Toolとして設計します。Zig 0.16系のMVPで、Assembly、実行、逆Assembly、Debug、Trace、1bpp描画を一つのBinaryへまとめています。
 
