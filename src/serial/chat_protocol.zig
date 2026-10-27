@@ -18,7 +18,16 @@ pub const Frame = struct {
 pub fn encode(out: *[max_frame]u8, kind: Kind, seq: u8, payload: []const u8) ![]const u8 {
     if (payload.len > max_payload) return error.FrameTooLarge;
     out[0..2].* = .{ 0xa5, 0x5a };
-    out[2] = @backingInt(kind);
+    out[2] = switch (kind) {
+        .hello => 1,
+        .ready => 2,
+        .prompt => 3,
+        .text => 4,
+        .done => 5,
+        .err => 6,
+        .ack => 7,
+        .cancel => 8,
+    };
     out[3] = seq;
     out[4] = @intCast(payload.len);
     @memcpy(out[5..][0..payload.len], payload);
@@ -82,6 +91,48 @@ pub const Receiver = struct {
     }
 };
 
+/// One outstanding data frame per direction. Callers transmit returned frames
+/// through the leased transport and call `timeout` only after the *whole*
+/// frame has left the UART and the ACK deadline has elapsed.
+pub const Sender = struct {
+    sequence: u8 = 0,
+    pending: ?Frame = null,
+    retries_left: u8 = 0,
+
+    pub fn begin(self: *Sender, kind: Kind, payload: []const u8, retries: u8) !Frame {
+        if (self.pending != null) return error.FrameInFlight;
+        if (kind == .ack) return error.InvalidDataFrame;
+        if (payload.len > max_payload) return error.FrameTooLarge;
+        var frame: Frame = .{ .kind = kind, .seq = self.sequence, .len = @intCast(payload.len) };
+        @memcpy(frame.payload[0..payload.len], payload);
+        self.pending = frame;
+        self.retries_left = retries;
+        return frame;
+    }
+
+    /// ACKs are unsequenced control messages. Their sequence identifies the
+    /// acknowledged data frame; they are never acknowledged themselves.
+    pub fn acknowledge(self: *Sender, reply: Frame) bool {
+        if (reply.kind != .ack or reply.len != 0) return false;
+        const pending = self.pending orelse return false;
+        if (reply.seq != pending.seq) return false;
+        self.pending = null;
+        self.sequence +%= 1;
+        return true;
+    }
+
+    pub fn timeout(self: *Sender) !Frame {
+        const frame = self.pending orelse return error.NoFrameInFlight;
+        if (self.retries_left == 0) return error.RetryLimit;
+        self.retries_left -= 1;
+        return frame;
+    }
+};
+
+pub fn ack(sequence: u8) Frame {
+    return .{ .kind = .ack, .seq = sequence, .len = 0 };
+}
+
 test "chat frame supports embedded sync and rejects corruption, oversized length and timeout" {
     var buf: [max_frame]u8 = undefined;
     var p: Parser = .{};
@@ -113,4 +164,20 @@ test "chat receiver rejects out of order and changed duplicate including sequenc
     try std.testing.expectEqual(Receiver.Result.rejected, r.accept(f));
     f.seq = 0;
     try std.testing.expectEqual(Receiver.Result.accepted, r.accept(f));
+}
+
+test "lost ACK retransmits identical frame without displaying text twice" {
+    var sender: Sender = .{};
+    var receiver: Receiver = .{};
+    const first = try sender.begin(.text, "HELLO", 2);
+    try std.testing.expectEqual(Receiver.Result.accepted, receiver.accept(first));
+    try std.testing.expectError(error.FrameInFlight, sender.begin(.text, "NEXT", 1));
+    try std.testing.expect(!sender.acknowledge(ack(1)));
+    const retry = try sender.timeout();
+    try std.testing.expectEqualDeep(first, retry);
+    try std.testing.expectEqual(Receiver.Result.duplicate, receiver.accept(retry));
+    try std.testing.expect(sender.acknowledge(ack(retry.seq)));
+    try std.testing.expect(!sender.acknowledge(ack(retry.seq)));
+    try std.testing.expectEqual(@as(u8, 1), (try sender.begin(.done, "", 0)).seq);
+    try std.testing.expectError(error.RetryLimit, sender.timeout());
 }

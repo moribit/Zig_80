@@ -10,12 +10,14 @@ XOR) covers TYPE through PAYLOAD; `123456789` has CRC 29B1. Payload bytes may
 include the sync bytes: LEN controls framing. A partial frame must be reset by
 the caller after an inter-byte timeout. An invalid length or CRC drops the
 frame; the next bytes are searched for the sync pair. A sender must retransmit
-the complete frame after a missing acknowledgement; timeout and retry policy
-are not implemented yet.
+the complete frame after a missing acknowledgement. The sender state tracks a
+configurable retry count; transport deadlines and UART integration are not
+implemented yet.
 
 Types 1 through 8 designate HELLO, READY, PROMPT, TEXT, DONE, ERROR, ACK and
 CANCEL respectively. The receiver accepts only its expected sequence, repeats
 the acknowledgement for an identical previous frame, and rejects both an
 out-of-order frame and a changed frame bearing the previous sequence number.
-Sequence wraps modulo 256. Session start, ACK payload semantics, cancellation,
+Sequence wraps modulo 256. An ACK has an empty payload and its sequence equals
+the acknowledged frame. ACKs are not acknowledged. Session start, cancellation,
 and sequence reset rules still need an interoperable implementation and tests.
