@@ -97,6 +97,15 @@ class ChatTests(unittest.TestCase):
             self.assertEqual(state.read_text().splitlines()[-1], 'tx=0')
             observed_rows = [int(line.split('=')[1]) for line in state.read_text().splitlines() if line.startswith('chat_max_row=')]
             self.assertLess(max(observed_rows), 20)
+            lines = state.read_text().splitlines()
+            for row, prefix in ((0, b'ZIG_80 CHAT'), (18, b'> '), (19, b'READY')):
+                cells = [bytes.fromhex(line.split('=', 1)[1]) for line in lines if line.startswith(f'chat_row{row}=')]
+                self.assertGreaterEqual(len(cells), turns + 1)
+                self.assertTrue(all(cell.startswith(prefix) for cell in cells))
+                if row == 18:
+                    self.assertTrue(all(cell[2:] == b' ' * (len(cell)-2) for cell in cells))
+                if row == 19:
+                    self.assertTrue(all(cell.endswith(b'ESC:EXIT') for cell in cells))
             result = run(port, OUT/'hello.bin', '--wait-return')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             if record:

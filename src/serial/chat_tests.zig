@@ -15,7 +15,7 @@ const Terminal = struct {
         var failure: assembler.FailureLocation = .{};
         self.image = try assembler.assembleFile(std.testing.io, std.testing.allocator, "examples/pc8001/chat.asm", &failure);
         errdefer self.image.deinit();
-        try std.testing.expect(self.image.bytes.items.len <= 0x6c0);
+        try std.testing.expect(self.image.bytes.items.len <= 0x715);
         try self.h.init(std.testing.io, std.testing.allocator, false, false);
         self.h.bus.memory[0xea66] = 0x28 | mode;
         @memcpy(self.h.bus.memory[0xd000..][0..self.image.bytes.items.len], self.image.bytes.items);
@@ -87,6 +87,19 @@ const Terminal = struct {
         try self.h.steps(1);
         try self.until("chat_loop");
     }
+    fn rowText(self: *Terminal, row: usize, text: []const u8) !void {
+        for (text, 0..) |char, col| try std.testing.expectEqual(char, self.h.bus.memory[0xf300 + row * 120 + col * self.get("STRIDE")]);
+    }
+    fn fixed(self: *Terminal, state: []const u8) !void {
+        try self.rowText(0, "ZIG_80 CHAT");
+        for ([_]usize{ 1, 17 }) |row| {
+            for (0..self.get("WIDTH")) |col| try std.testing.expectEqual(@as(u8, '-'), self.h.bus.memory[0xf300 + row * 120 + col * self.get("STRIDE")]);
+        }
+        try self.rowText(18, "> ");
+        try self.rowText(19, state);
+        const start = self.get("WIDTH") - 8;
+        for ("ESC:EXIT", 0..) |char, col| try std.testing.expectEqual(char, self.h.bus.memory[0xf300 + 19 * 120 + (start + col) * self.get("STRIDE")]);
+    }
     fn ask(self: *Terminal) !void {
         try self.key(2, 2);
         self.h.keys[1] = 0x7f;
@@ -157,7 +170,7 @@ test "Z80 chat handshake input edit wrap scrolling duplicates and attributes in 
         for (0..25) |row| try std.testing.expectEqualSlices(u8, attributes[row * 40 ..][0..40], t.h.bus.memory[0xf300 + row * 120 + 80 ..][0..40]);
         try t.feed(.cancel, 33, "");
         _ = try t.next();
-        try t.h.steps(1000);
+        try t.h.steps(10000);
         try std.testing.expectEqual(@as(u16, 0xbeef), t.h.cpu.registers.pc);
         try std.testing.expectEqual(@as(u8, 0x43), t.h.cpu.registers.a);
         try std.testing.expectEqual(@as(u16, 0xe7f2), t.h.cpu.registers.sp);
@@ -181,7 +194,7 @@ test "Z80 chat spinner sits after AI and is replaced safely by text empty DONE a
         const row = t.get("ROW");
         const col = t.get("COL");
         const spinner_cell = @as(usize, 0xf300) + row * @as(usize, 120) + col * t.get("STRIDE");
-        for ("AI> ", 0..) |char, i| try std.testing.expectEqual(char, t.h.bus.memory[0xf300 + @as(usize, row) * 120 + i * t.get("STRIDE")]);
+        for ("  ", 0..) |char, i| try std.testing.expectEqual(char, t.h.bus.memory[0xf300 + @as(usize, row) * 120 + i * t.get("STRIDE")]);
         try std.testing.expectEqual(@as(u8, '.'), t.h.bus.memory[spinner_cell]);
         const frames = [_]u8{ '+', '*', '+', '.' };
         for (frames) |expected| {
@@ -221,7 +234,7 @@ test "Z80 chat spinner sits after AI and is replaced safely by text empty DONE a
         const cancel_cell = 0xf300 + @as(usize, t.get("ROW")) * 120 + @as(usize, t.get("COL")) * t.get("STRIDE");
         try t.feed(.cancel, 4, "");
         _ = try t.next();
-        try t.h.steps(1000);
+        try t.h.steps(10000);
         try std.testing.expectEqual(@as(u16, 0xbeef), t.h.cpu.registers.pc);
         try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[cancel_cell]);
     }
@@ -281,19 +294,26 @@ test "Z80 chat corrupt oversized and non-ASCII frames never draw or advance sequ
 }
 
 test "Z80 chat keeps new prompts visible through repeated full screens in 20-row mode" {
-    for (0..4) |mode| {
+    for (0..8) |mode| {
         var t: Terminal = undefined;
-        try t.init(@intCast(mode));
+        try t.init(@intCast(mode % 4));
+        t.h.visible_rows = if (mode < 4) 20 else 25;
         defer t.deinit();
         try t.connect();
+        try t.fixed("READY");
+        const header = t.h.bus.memory[0xf300..0xf3f0].*;
+        const attributes = t.h.bus.memory;
         var seq: u8 = 1;
         for (0..15) |_| {
             try t.ask();
+            try t.fixed("THINKING");
             for (0..20) |_| {
                 try t.feed(.text, seq, "ABCDEFG\n");
                 _ = try t.next();
                 try t.until("chat_loop");
-                try std.testing.expect(t.get("ROW") < 20);
+                try std.testing.expect(t.get("ROW") <= 16);
+                try t.fixed("RECEIVING");
+                try std.testing.expectEqualSlices(u8, &header, t.h.bus.memory[0xf300..0xf3f0]);
                 try t.presentation();
                 seq +%= 1;
             }
@@ -301,14 +321,131 @@ test "Z80 chat keeps new prompts visible through repeated full screens in 20-row
             _ = try t.next();
             try t.until("chat_loop");
             seq +%= 1;
+            try t.fixed("READY");
+            for (0..25) |r| try std.testing.expectEqualSlices(u8, attributes[0xf300 + r * 120 + 80 ..][0..40], t.h.bus.memory[0xf300 + r * 120 + 80 ..][0..40]);
             try std.testing.expectEqual(@as(u8, 1), t.get("STATE"));
-            try std.testing.expect(t.get("ROW") < 20);
+            try std.testing.expectEqual(@as(u8, 18), t.get("ROW"));
             try t.presentation();
-            for ("YOU> ", 0..) |c, col| try std.testing.expectEqual(c, t.h.bus.memory[0xf300 + @as(usize, t.get("ROW")) * 120 + col * t.get("STRIDE")]);
+            for ("> ", 0..) |c, col| try std.testing.expectEqual(c, t.h.bus.memory[0xf300 + @as(usize, t.get("ROW")) * 120 + col * t.get("STRIDE")]);
         }
         try t.feed(.cancel, seq, "");
         _ = try t.next();
-        try t.h.steps(1000);
+        try t.h.steps(10000);
         try std.testing.expectEqual(@as(u16, 0xbeef), t.h.cpu.registers.pc);
+    }
+}
+
+test "Z80 classic fixed input viewport follows 64 bytes and Backspace without changing history" {
+    for (0..4) |mode| {
+        var t: Terminal = undefined;
+        try t.init(@intCast(mode));
+        defer t.deinit();
+        try t.connect();
+        const body = t.h.bus.memory[0xf3f0..0xfaf8].*;
+        for (0..65) |i| {
+            try t.key(2, if (i % 2 == 0) 2 else 4);
+            const length: u8 = @intCast(@min(i + 1, 64));
+            const capacity = t.get("WIDTH") - 2;
+            const start = length -| capacity;
+            try std.testing.expectEqual(length, t.get("LENGTH"));
+            try std.testing.expectEqual(start, t.get("INPUT_START"));
+            try std.testing.expectEqual(@as(u8, 18), t.get("ROW"));
+            try std.testing.expect(t.get("COL") < t.get("WIDTH"));
+            for (start..length) |j| try std.testing.expectEqual(t.h.bus.memory[t.addr("PROMPT") + j], t.h.bus.memory[0xfb70 + (2 + j - start) * t.get("STRIDE")]);
+            try std.testing.expectEqualSlices(u8, &body, t.h.bus.memory[0xf3f0..0xfaf8]);
+            try t.presentation();
+        }
+        for (0..30) |_| try t.key(8, 8);
+        try std.testing.expectEqual(@as(u8, 34), t.get("LENGTH"));
+        try std.testing.expectEqual(@as(u8, 0), t.get("INPUT_START"));
+        const expected = t.h.bus.memory[t.addr("PROMPT")..][0..34].*;
+        t.h.keys[1] = 0x7f;
+        var offset: usize = 0;
+        for (0..2) |_| {
+            const frame = try t.next();
+            const count = frame.len - 1;
+            try std.testing.expectEqualSlices(u8, expected[offset..][0..count], frame.payload[1..frame.len]);
+            offset += count;
+            try t.feed(.ack, frame.seq, "");
+        }
+        t.h.keys[1] = 255;
+        try t.until("chat_loop");
+        try std.testing.expectEqual(@as(usize, 34), offset);
+        try t.fixed("THINKING");
+        for (2..t.get("WIDTH")) |col| try std.testing.expectEqual(@as(u8, ' '), t.h.bus.memory[0xfb70 + col * t.get("STRIDE")]);
+        try t.rowText(2, "> ABABAB");
+    }
+}
+
+test "Z80 classic empty TEXT DONE ERROR and 1 8 32 byte streams preserve fixed regions" {
+    for ([_]usize{ 1, 8, 32 }) |chunk| {
+        var t: Terminal = undefined;
+        try t.init(0);
+        defer t.deinit();
+        try t.connect();
+        try t.ask();
+        try t.feed(.text, 1, "");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.fixed("THINKING");
+        try std.testing.expectEqual(@as(u8, 1), t.get("ANIM_ACTIVE"));
+        var seq: u8 = 2;
+        const text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ABCDEFGHIJKLMNOPQRSTUVWXYZ\nNEW LINE";
+        var offset: usize = 0;
+        while (offset < text.len) {
+            const end = @min(offset + chunk, text.len);
+            try t.feed(.text, seq, text[offset..end]);
+            _ = try t.next();
+            try t.until("chat_loop");
+            try t.fixed("RECEIVING");
+            try std.testing.expectEqual(@as(u8, 0), t.get("ANIM_ACTIVE"));
+            offset = end;
+            seq +%= 1;
+        }
+        try t.rowText(4, "  ABCDEFGHIJKLMNOPQRSTUVWXYZ ABCDEFGHIJK");
+        try t.rowText(5, "  LMNOPQRSTUVWXYZ");
+        try t.rowText(6, "  NEW LINE");
+        try t.feed(.done, seq, "");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.fixed("READY");
+        seq +%= 1;
+        try t.ask();
+        try t.feed(.err, seq, "FAILED");
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.fixed("ERROR");
+        try std.testing.expectEqual(@as(u8, 18), t.get("ROW"));
+    }
+}
+
+test "Z80 classic header model alignment alphabet space and static RAM boundaries" {
+    for (0..4) |mode| {
+        var t: Terminal = undefined;
+        try t.init(@intCast(mode));
+        defer t.deinit();
+        const ranges = [_][2]u16{
+            .{ 0xd000, t.addr("chat_end") },                  .{ t.addr("TX"), t.addr("TX") + 35 },
+            .{ t.addr("PREVIOUS"), t.addr("PREVIOUS") + 37 }, .{ t.addr("KEYS"), t.addr("KEYS") + 10 },
+            .{ t.addr("ENTRY_SP"), t.addr("HAVE_CHAT") + 1 }, .{ t.addr("PROMPT"), t.addr("PROMPT") + 64 },
+            .{ t.addr("RX"), t.addr("RX") + 37 },
+        };
+        for (ranges, 0..) |range, i| {
+            try std.testing.expect(range[0] >= 0xd000 and range[1] <= 0xd800);
+            if (i != 0) try std.testing.expect(ranges[i - 1][1] <= range[0]);
+        }
+        _ = try t.next();
+        try t.feed(.ack, 0, "");
+        const model = "LONG-MODEL-NAME-1234";
+        try t.feed(.ready, 0, "C1" ++ model);
+        _ = try t.next();
+        try t.until("chat_loop");
+        try t.fixed("READY");
+        for (model, 0..) |c, i| try std.testing.expectEqual(c, t.h.bus.memory[0xf300 + (t.get("WIDTH") - model.len + i) * t.get("STRIDE")]);
+        for (1..27) |i| try t.key(2 + i / 8, @as(u8, 1) << @as(u3, @intCast(i % 8)));
+        try t.key(9, 64);
+        try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRSTUVWXYZ ", t.h.bus.memory[t.addr("PROMPT")..][0..27]);
+        const immutable = t.addr("ack_buffer") - 0xd000;
+        try std.testing.expectEqualSlices(u8, t.image.bytes.items[0..immutable], t.h.bus.memory[0xd000..][0..immutable]);
     }
 }

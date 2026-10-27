@@ -2,12 +2,14 @@
 ; No ROM calls or display mode/attribute/UART configuration changes.
 ; uPD3301 cursor position only: 81h to port 51h, X/Y to 50h.
 ; Keyboard mapping: MAME src/mame/nec/pc88_kbd.cpp (original PC8001).
+; Static buffers are packed above D715h; host/tests reject code crossing it.
+; Only rows 2..16 scroll. Row 18 input viewport retains all 64 prompt bytes.
 org 0xd000
-PROMPT equ 0xd7c0
-RX equ 0xd6c0
-TX equ 0xd700
-PREVIOUS equ 0xd730
-KEYS equ 0xd760
+PROMPT equ 0xd78c
+RX equ 0xd7cc
+TX equ 0xd715
+PREVIOUS equ 0xd738
+KEYS equ 0xd75d
 ENTRY_SP equ 0xd770
 STRIDE equ 0xd772
 WIDTH equ 0xd773
@@ -27,12 +29,14 @@ VRTC_LAST equ 0xd782
 ANIM_COUNT equ 0xd783
 ANIM_PHASE equ 0xd784
 ANIM_ACTIVE equ 0xd785
+CHAT_POS equ 0xd788
+INPUT_START equ 0xd78a
+HAVE_CHAT equ 0xd78b
 POLL_LIMIT equ 0
-VIEW_ROWS equ 20 ; Visible on the default 20-row mode and on 25-row screens.
 
     xor a
     ld hl,KEYS
-    ld b,40
+    ld b,47
 init_state:
     ld (hl),a
     inc hl
@@ -59,22 +63,23 @@ clear_initial:
     djnz clear_initial
     ld hl,title
     call puts
-    call newline
+    ld hl,0xf378
+    call divider
+    ld hl,0xfaf8
+    call divider
+    ld hl,0x0200
+    ld (CHAT_POS),hl
     ld hl,waiting
-    call puts
-    ld a,2
-    ld (ROW),a
-    xor a
-    ld (COL),a
-    call cursor_update
+    call status
+    call input_render
     ld a,1
     ld (TX),a
     ld a,2
-    ld (TX+3),a
+    ld (TX+2),a
     ld a,'C'
-    ld (TX+4),a
+    ld (TX+3),a
     ld a,'1'
-    ld (TX+5),a
+    ld (TX+4),a
     call reliable
 chat_loop:
     call cursor_update
@@ -124,33 +129,54 @@ key_debounce:
     ld (hl),b
     inc a
     ld (LENGTH),a
-    ld a,b
-    call putc
-    jr chat_loop
+    call input_render
+    jp chat_loop
 backspace:
     ld a,(LENGTH)
     or a
     jr z,chat_loop
     dec a
     ld (LENGTH),a
-    call erase
-    jr chat_loop
+    call input_render
+    jp chat_loop
 submit:
     ld a,(LENGTH)
     or a
     jr z,chat_loop
+    ld a,2
+    ld (STATE),a
+    ld hl,sending_text
+    call status
+    ld hl,(CHAT_POS)
+    ld (COL),hl
+    ld a,(HAVE_CHAT)
+    or a
+    call nz,paragraph
+    ld a,1
+    ld (HAVE_CHAT),a
+    xor a
+    ld (COL),a
+    ld hl,you
+    call puts
+    ld a,(LENGTH)
+    ld b,a
+    ld hl,PROMPT
+show_prompt:
+    ld a,(hl)
+    push hl
+    push bc
+    call putc
+    pop bc
+    pop hl
+    inc hl
+    djnz show_prompt
+    call paragraph
+    call clear_input
     xor a
     ld (ANIM_COUNT),a
     inc a
     ld (ANIM_PHASE),a
     ld (ANIM_ACTIVE),a
-    ld hl,busy_text
-    call status
-    call newline
-    ld hl,ai
-    call puts
-    ld a,2
-    ld (STATE),a
     call cell
     ld (hl),46
     call cursor_update
@@ -158,8 +184,6 @@ submit:
     ld a,(LENGTH)
     ld c,a
 prompt_chunk:
-    push hl
-    push bc
     ld a,3
     ld (TX),a
     ld b,31
@@ -170,7 +194,7 @@ prompt_chunk:
 prompt_count:
     ld a,b
     inc a
-    ld (TX+3),a
+    ld (TX+2),a
     ld a,c
     sub b
     ld (LENGTH),a
@@ -178,22 +202,14 @@ prompt_count:
     jr nz,more_prompt
     inc a
 more_prompt:
-    ld (TX+4),a
-    ld de,TX+5
+    ld (TX+3),a
+    ld de,TX+4
 copy_prompt:
     ld a,(hl)
     ld (de),a
     inc hl
     inc de
     djnz copy_prompt
-    ex de,hl
-    pop bc
-    pop hl
-    ld a,(TX+3)
-    dec a
-    ld e,a
-    ld d,0
-    add hl,de
     push hl
     call reliable
     pop hl
@@ -201,6 +217,8 @@ copy_prompt:
     ld c,a
     or a
     jr nz,prompt_chunk
+    ld hl,thinking_text
+    call status
     jp chat_loop
 
 ; Validate version READY and frame sequence before mutating the screen.
@@ -274,7 +292,8 @@ validate_model:
     ld hl,RX+5
     xor a
     ld (ROW),a
-    ld a,20
+    ld a,(WIDTH)
+    sub b
     ld (COL),a
 model_character:
     ld a,(hl)
@@ -285,11 +304,9 @@ model_character:
     pop hl
     inc hl
     djnz model_character
-    ld a,2
-    ld (ROW),a
-    xor a
-    ld (COL),a
 model_done:
+    ld hl,(CHAT_POS)
+    ld (COL),hl
     call remember_ack
     jp new_question
 text_frame:
@@ -312,7 +329,13 @@ validate_text:
 text_valid:
     inc hl
     djnz validate_text
+    ld a,(ANIM_ACTIVE)
+    or a
+    jr z,text_started
     call stop_loading
+    ld hl,busy_text
+    call status
+text_started:
     ld a,(RX+2)
     ld b,a
     ld hl,RX+3
@@ -334,20 +357,20 @@ done_frame:
     jp new_question
 error_frame:
     call remember_ack
+    call new_question
     ld hl,error_text
-    call puts
+    jp status
 new_question:
     call stop_loading
+    ld hl,(COL)
+    ld (CHAT_POS),hl
     ld hl,ready_text
     call status
-    call newline
-    ld hl,you
-    call puts
     ld a,1
     ld (STATE),a
     xor a
     ld (LENGTH),a
-    ret
+    jp input_render
 remember_ack:
     ld a,(RXSEQ)
     inc a
@@ -372,20 +395,10 @@ send_ack:
     pop hl
     ret
 
-; TX layout type,seq,reserved,len,payload; reserved permits simple scratch use.
+; Canonical TX layout: type, sequence, length, payload.
 reliable:
     ld a,(TXSEQ)
     ld (TX+1),a
-    ld a,(TX+3)
-    ld (TX+2),a
-    ld hl,TX+4
-    ld de,TX+3
-    ld c,a
-    ld b,0
-    or a
-    jr z,reliable_empty
-    ldir
-reliable_empty:
     ld a,3
     ld (RETRIES),a
 retry_frame:
@@ -530,9 +543,11 @@ exit_chat:
     ld a,8
     ld (TX),a
     xor a
-    ld (TX+3),a
+    ld (TX+2),a
     call reliable
 return_loader:
+    ld hl,exiting_text
+    call status
     ld sp,(ENTRY_SP)
     call stop_loading
     call cursor_update
@@ -611,10 +626,13 @@ key_table:
     ld e,a
     ld d,0
     ld hl,key_plain
+    ld a,e
+    cp 27
+    jr c,key_lookup
     in a,(8)
     and 0x40
     jr nz,key_lookup
-    ld hl,key_shift
+    ld hl,key_shift-27
 key_lookup:
     add hl,de
     ld a,(hl)
@@ -696,20 +714,90 @@ stop_loading:
     ld (hl),32
     ret
 status:
-    ld a,(ROW)
-    push af
-    ld a,(COL)
-    push af
-    xor a
-    ld (COL),a
-    inc a
-    ld (ROW),a
+    push hl
+    ld hl,(COL)
+    push hl
+    ld hl,0xfbe8
+    call clear_row
+    ld hl,0x1300
+    ld (COL),hl
+    pop de
+    pop hl
+    push de
     call puts
-    pop af
+    ld a,(WIDTH)
+    sub 8
     ld (COL),a
-    pop af
-    ld (ROW),a
+    ld hl,help_text
+    call puts
+    pop hl
+    ld (COL),hl
     ret
+clear_input:
+    ld hl,0xfb70
+    call clear_row
+    ld a,62
+    ld (0xfb70),a
+    ret
+input_render:
+    call clear_input
+    ld a,(WIDTH)
+    sub 2
+    ld b,a
+    ld a,(LENGTH)
+    sub b
+    jr nc,input_viewport
+    xor a
+input_viewport:
+    ld (INPUT_START),a
+    ld e,a
+    ld d,0
+    ld hl,PROMPT
+    add hl,de
+    ld a,(LENGTH)
+    sub e
+    ld b,a
+    add a,2
+    ld c,a
+    ld a,(WIDTH)
+    cp c
+    jr nz,input_cursor
+    dec c
+input_cursor:
+    ld a,c
+    ld (COL),a
+    ld a,18
+    ld (ROW),a
+    ld de,0xfb70
+    ld a,(STRIDE)
+    add a,a
+    add a,e
+    ld e,a
+    ld a,b
+    or a
+    ret z
+input_copy:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    ld a,(STRIDE)
+    add a,e
+    ld e,a
+    djnz input_copy
+    ret
+divider:
+    ld b,80
+    ld a,45
+divider_cell:
+    ld (hl),a
+    inc hl
+    djnz divider_cell
+    ret
+paragraph:
+    ld a,(COL)
+    cp 2
+    call nz,newline
+    jp newline
 puts:
     ld a,(hl)
     or a
@@ -734,18 +822,18 @@ putc:
     cp b
     ret nz
 newline:
-    xor a
+    ld a,2
     ld (COL),a
     ld a,(ROW)
     inc a
-    cp VIEW_ROWS
+    cp 17
     jr z,scroll
     ld (ROW),a
     ret
 scroll:
     ld hl,0xf468
     ld de,0xf3f0
-    ld b,VIEW_ROWS-3
+    ld b,14
 scroll_row:
     push bc
     ld bc,80
@@ -757,7 +845,7 @@ scroll_row:
     ex de,hl
     pop bc
     djnz scroll_row
-    ld hl,0xfbe8 ; F300h + 19 * 120, last visible row of the 20-row viewport.
+    ld hl,0xfa80 ; Last conversation row, 16. Fixed rows stay untouched.
     call clear_row
     ret
 clear_row:
@@ -792,35 +880,22 @@ cell_col:
     ret nz
     add hl,de
     ret
-erase:
-    ld a,(COL)
-    or a
-    jr nz,erase_col
-    ld a,(ROW)
-    dec a
-    ld (ROW),a
-    ld a,(WIDTH)
-erase_col:
-    dec a
-    ld (COL),a
-    call cell
-    ld (hl),32
-    ret
-
 include "loader/crc.inc"
-include "loader/uart.inc"
+include "loader/uart_io.inc"
 key_plain:
     db "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[",0,"]^-0123456789",58,59,44,46,47,0
 key_shift:
-    db "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{",0,"}^=0!",34,"#$%&'()*+<>?_"
-title: db "ZIG_80 LOCAL AI CHAT",0
-waiting: db "CONNECTING / ESC EXIT",0
-ready_text: db "READY      / ESC EXIT",0
-busy_text: db "RECEIVING  / ESC EXIT",0
-you: db "YOU> ",0
-ai: db "AI> ",0
-error_text: db " [ERROR]",0
-; ACK scratch is in application RAM, never resident state.
+    db "{",0,"}^=0!",34,"#$%&'()*+<>?_"
+title: db "ZIG_80 CHAT",0
+waiting: db "CONNECTING",0
+ready_text: db "READY",0
+sending_text: db "SENDING",0
+thinking_text: db "THINKING",0
+busy_text: db "RECEIVING",0
+exiting_text: db "EXITING",0
+you: db "> ",0
+error_text: db "ERROR",0
+help_text: db "ESC",58,"EXIT",0
 ack_buffer: db 7,0,0
 spinner: db 46,43,42,43
 chat_end:

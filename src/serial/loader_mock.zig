@@ -53,6 +53,39 @@ const Context = struct {
     chat_watch: ?u8 = null,
     chat_returned: bool = false,
     chat_max_row: u8 = 0,
+    chat_loop_pc: u16 = 0,
+    chat_checked_seq: ?u8 = null,
+    chat_attributes: [1000]u8 = undefined,
+
+    fn chatCheckpoint(self: *Context) !void {
+        if (self.h.cpu.registers.pc != self.chat_loop_pc or self.h.bus.memory[0xd77a] != 1) return;
+        const seq = self.h.bus.memory[0xd778];
+        if (self.chat_checked_seq == seq) return;
+        self.chat_checked_seq = seq;
+        const stride: usize = if (self.h.bus.memory[0xea66] & 1 == 0) 2 else 1;
+        const width: usize = 80 / stride;
+        for ([_]usize{ 1, 17 }) |row| for (0..width) |col| {
+            if (self.h.bus.memory[0xf300 + row * 120 + col * stride] != '-') return error.ChatDividerCorrupted;
+        };
+        for (0..25) |row| {
+            if (!std.mem.eql(u8, self.chat_attributes[row * 40 ..][0..40], self.h.bus.memory[0xf300 + row * 120 + 80 ..][0..40])) return error.ChatAttributesCorrupted;
+        }
+        if (self.log) |fd| {
+            for ([_]usize{ 0, 18, 19 }) |row| {
+                var buffer: [200]u8 = undefined;
+                const prefix = try std.fmt.bufPrint(&buffer, "chat_row{d}=", .{row});
+                var length = prefix.len;
+                for (0..width) |col| {
+                    const value = self.h.bus.memory[0xf300 + row * 120 + col * stride];
+                    buffer[length] = "0123456789ABCDEF"[value >> 4];
+                    buffer[length + 1] = "0123456789ABCDEF"[value & 15];
+                    length += 2;
+                }
+                buffer[length] = '\n';
+                _ = writeAll(fd, buffer[0 .. length + 1]);
+            }
+        }
+    }
     fn now(self: *Context) u64 {
         return @import("transport.zig").nowUs(self.io);
     }
@@ -237,6 +270,17 @@ pub fn main(init: std.process.Init) !void {
     if (init.environ_map.get("CHAT_TURNS")) |count| ctx.chat_limit = try std.fmt.parseInt(usize, count, 10);
     ctx.chat_idle = init.environ_map.get("CHAT_IDLE_AFTER_TURNS") != null;
     try ctx.h.init(init.io, init.arena.allocator(), std.mem.eql(u8, mode, "stage0"), false);
+    if (std.mem.startsWith(u8, ctx.fault, "chat")) {
+        var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
+        var image = try @import("../assembler/assembler.zig").assembleFile(init.io, init.arena.allocator(), "examples/pc8001/chat.asm", &failure);
+        defer image.deinit();
+        ctx.chat_loop_pc = image.symbols.address("chat_loop").?;
+        for (0..25) |row| for (0..40) |col| {
+            const value: u8 = @intCast((row * 17 + col) % 256);
+            ctx.chat_attributes[row * 40 + col] = value;
+            ctx.h.bus.memory[0xf300 + row * 120 + 80 + col] = value;
+        };
+    }
     ctx.resident = !std.mem.eql(u8, mode, "stage0") and !std.mem.eql(u8, mode, "mini");
     if (std.mem.eql(u8, mode, "mini")) try ctx.h.initMini(init.io, init.arena.allocator());
     if (std.mem.eql(u8, ctx.fault, "auto-escape")) ctx.h.escape_after_polls = 12;
@@ -283,6 +327,7 @@ pub fn main(init: std.process.Init) !void {
             }
             for (0..5000) |_| {
                 try ctx.h.steps(1);
+                if (ctx.chat_loop_pc != 0) try ctx.chatCheckpoint();
                 while (ctx.tx_cursor < ctx.h.tx_len) {
                     ctx.targetByte(ctx.h.tx[ctx.tx_cursor]);
                     ctx.tx_cursor += 1;

@@ -359,7 +359,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
     var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
     var image = try @import("../assembler/assembler.zig").assembleFile(io, allocator, "examples/pc8001/chat.asm", &failure);
     defer image.deinit();
-    if (image.bytes.items.len > 0x6c0) return error.ChatCodeOverlapsBuffers;
+    if (image.bytes.items.len > 0x715) return error.ChatCodeOverlapsBuffers;
     var log_file: ?std.Io.File = null;
     var log_buffer: [4096]u8 = undefined;
     var log_writer: std.Io.File.Writer = undefined;

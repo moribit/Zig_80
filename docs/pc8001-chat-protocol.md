@@ -58,3 +58,22 @@ ESC/STOP or normal bootstrap recovery.
 CRC detects accidental errors and provides neither authentication nor proof
 of electrical safety. Startup Hi-Z, explicit TX permission, the 1s firmware
 lease, watchdog and disconnect handling are unchanged.
+
+## Classic terminal UI / 固定入力欄UI
+
+The classic layout is a presentation-only change: C1, 32-byte payload limits,
+CRC16, sequence numbers, duplicate suppression, ACK and retries are unchanged.
+The host still defaults to eight-byte TEXT chunks with a 100ms flush.
+
+READY's model label is right-aligned on row 0. PROMPT is assembled from the
+complete 64-byte input buffer, independently of row 18's horizontal viewport.
+After the last PROMPT ACK, the UI shows THINKING. Empty TEXT is acknowledged
+without ending that state or clearing the spinner. The first nonempty TEXT
+validated in full changes it to RECEIVING and replaces the spinner; duplicate
+or invalid frames never change the display. DONE clears any remaining spinner
+and returns input focus/READY to row 18. ERROR returns input focus with ERROR.
+The status line is local state and adds no protocol messages.
+
+固定入力・会話領域の分離は表示処理だけの変更です。UART所有権、PicoのTX許可、
+リース更新、Hi-Z、常駐ローダーへの復帰ABIは変更しません。本文は2〜16行だけを
+スクロールし、入力欄18行・状態19行へ受信本文を描画しません。

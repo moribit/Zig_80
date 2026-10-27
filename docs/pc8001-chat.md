@@ -40,45 +40,56 @@ the host and READY on the PC. Do not enter TERM or rerun USR.
 
 The original active-low matrix is scanned directly, without ROM calls or
 interrupts, based on [MAME's PC-8001 keyboard](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc88_kbd.cpp).
-40/80-column mode is detected from EA66h. The header shows the model label;
-the status row shows CONNECTING, READY or RECEIVING. The hardware blinking
-cursor follows both input and answer text, including wrapping, Backspace
-and scrolling. It uses the uPD3301 cursor-position command (81h at port 51h,
-column/row at 50h); 40-column positions use twice the displayed column. The
-existing cursor shape/blink timing is retained and unchanged positions are not
-reloaded. Timing/attribute/UART configuration is preserved. VRAM writes touch
-only character cells; all 1000 attribute bytes and the video/UART modes are
-preserved. Start from a
-normal text screen; arbitrary leftover graphics attributes are not converted.
-Screen contents are not restored on exit.
+40/80-column mode is detected from EA66h without changing the display mode.
+The classic terminal uses the upper 20 rows in either 20- or 25-row hardware
+mode. The lower five rows are unused in 25-row mode.
 
-英字は大文字へ統一します。曲がった単引用符・二重引用符はASCIIの引用符へ、
-ダッシュは「-」、改行禁止空白は通常の空白へ変換します。それ以外の非ASCII文字は
-「?」、LF以外の制御文字は空白になります。点滅カーソルは入力・回答の末尾に追従します。
-回答待ちの間は「AI> .」の位置で`. → + → * → +`と記号が変化し、
-最初の回答が届くと本文に置き換わります。円記号になるバックスラッシュ等は使いません。
-属性と表示モードを維持し、文字領域だけをクリア・更新します。
+| Row | Contents / 内容 |
+|---|---|
+| 0 | ZIG_80 CHAT; READY model label aligned right (up to 20 characters) |
+| 1 | Header divider, 40 or 80 visible dashes |
+| 2–16 | 15-row conversation area; only these rows scroll |
+| 17 | Input divider |
+| 18 | Fixed `> ` input and blinking cursor |
+| 19 | Status on the left; ESC:EXIT on the right |
 
-The four-phase spinner appears immediately after AI> and advances every eight
-VRTC rising edges (port 40h, bit 5). The cursor waits one cell after it. It never
-waits for retrace or adds UART/display delays; frame reception can temporarily
-pause the indicator. First valid TEXT replaces it; empty DONE, ERROR and exit
-also clear it. Later answer text is never overwritten by the indicator.
-Cursor/VRTC behavior follows the
-[MAME PC-8001 port map](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc8001.cpp)
-and [uPD3301 command implementation](https://github.com/mamedev/mame/blob/master/src/devices/video/upd3301.cpp).
+Submitted questions begin with `> `; answers and wrapped continuation lines
+have a two-character indent. A blank row separates utterances. Enter copies
+the question into history and clears the fixed input. Input remains locked
+until DONE or ERROR. There is no repeated YOU>/AI> prefix.
 
-The chat viewport uses rows 0–19, keeping the title/status fixed and scrolling
-only rows 2–19. This is visible in both 20- and 25-row hardware modes without
-changing the CRTC configuration; five lower rows remain unused in 25-row mode.
-The [NEC manual's power-on description (PDF page 15)](https://oldcrap.org/wp-content/uploads/2024/07/nec-pc8001b-users-manual.pdf)
-specifies 40 columns by 20 rows. Earlier chat versions assumed 25 rows and
-could put the next prompt outside that visible area. A regression test now
-fills and scrolls the screen repeatedly for 15 turns, checks every prompt and
-cursor stays below row 20, and exercises sequence-number wraparound.
+40文字では入力欄の38文字分、80文字では78文字分を使います。入力バッファはどちらも
+64バイトです。40文字で38文字を超えると末尾38文字を表示する横スクロールとなり、
+Backspaceで削除すると前の文字が再表示されます。末尾まで埋まった場合、カーソルは
+最右セルに留まります。入力欄は折り返さず、本文のスクロールから独立しています。
+The viewport start is `max(0, length - (width - 2))`; the cursor is clamped to
+the last visible cell. The full prompt, rather than just its viewport, is sent.
 
-標準の20行表示で入力欄が画面外に隠れないよう、本文を2〜19行の範囲でスクロールします。
-25行表示でも表示モードは変えず、上側20行を使います。
+Status transitions are CONNECTING → READY → SENDING → THINKING → RECEIVING →
+READY. THINKING lasts until the first nonempty validated TEXT. Empty TEXT does
+not change it; empty DONE returns directly to READY. ERROR unlocks input with
+an ERROR status, and normal cancellation shows EXITING.
+
+回答待ちの記号は会話領域の回答開始位置（2文字インデント後）で
+`. → + → * → +`と変化します。最初の有効な空でないTEXTで消し、同じ位置から本文を
+描画します。空の回答、エラー、終了時も記号を消します。本文を上書きしません。
+VRTC rising edges (port 40h, bit 5) advance the spinner once every eight frames.
+It never waits for retrace; UART reception can temporarily pause animation.
+
+The uPD3301 hardware cursor follows fixed input, then the spinner/answer tail,
+and returns to row 18 on completion. Only command 81h at port 51h and X/Y at
+50h are written. Forty-column X coordinates are doubled. Cursor shape/blink,
+video/UART configuration and all 1000 attribute bytes are preserved. Character
+cells are initially cleared; original screen contents are not restored on exit.
+Start from a normal text screen: leftover graphics attributes are not converted.
+
+英字は大文字へ統一します。曲がった引用符、ダッシュ、改行禁止空白をASCIIへ正規化し、
+その他の非ASCIIは「?」へ変換します。文字追加は対象セルだけ、入力編集は入力行だけを
+更新し、スクロール時だけ会話15行を移動します。ヘッダー・区切り線・入力・状態行は
+スクロールしません。40/80文字、カラー/モノクロの設定を変更しません。
+
+Display behavior follows the [MAME PC-8001 port map](https://github.com/mamedev/mame/blob/master/src/mame/nec/pc8001.cpp)
+and [uPD3301 implementation](https://github.com/mamedev/mame/blob/master/src/devices/video/upd3301.cpp).
 
 ## Streaming and safety / ストリーミング
 
@@ -116,19 +127,28 @@ session. Optional logs contain response text.
 
 | Range | Purpose |
 |---|---|
-| D000–D692 | 1683-byte app, tables and ACK scratch |
-| D6C0–D6E6 | receive frame |
-| D700–D726 | transmit frame |
-| D730–D754 | exact previous received frame |
-| D760–D769 | keyboard edge state |
-| D770–D77E | saved stack, display and protocol state |
-| D780–D787 | cached cursor position and VRTC/spinner state |
-| D7C0–D7FF | 64-byte prompt |
-| E700–E7FF | existing resident private stack |
+| D000–D6CE | 1743-byte code, tables and three-byte ACK scratch |
+| D6CF–D714 | Code headroom (70 bytes) |
+| D715–D737 | Canonical transmit frame: type/sequence/length/payload (35 bytes) |
+| D738–D75C | Exact previous received frame (37 bytes) |
+| D75D–D766 | Keyboard edge state (10 bytes) |
+| D770–D78B | Stack/display/protocol/cursor/spinner state, saved chat position and input viewport (28 bytes) |
+| D78C–D7CB | Complete 64-byte prompt |
+| D7CC–D7F0 | Receive frame including CRC, excluding sync (37 bytes) |
+| E700–E7FF | Unchanged resident private stack |
 
-Before ARM, code is checked not to cross D6C0h. Upload uses the resident's
-D000–D7FF checks. Emulator tests verify no writes to protected RAM, resident
-code or BASIC work. Native apps are not execution sandboxes.
+The previous image was 1683 bytes. Static working storage reserves 211 bytes;
+94 bytes remain unallocated, including 70 bytes before TX. Before ARM the host
+rejects code crossing D715h; tests also assert every buffer range is disjoint
+and contained in D000–D7FF. The old D6C0h RX allocation is explicitly replaced,
+not overwritten. TX uses its wire-compatible canonical form without an unused
+byte or a redundant frame copy. RX/TX/drain routines are shared separately from
+initialization, avoiding unused initialization code in chat. Loader binaries
+and protocols remain unchanged.
+
+コードと静的データは2KB内です。ローダーのRAM保護範囲・スタック・Picoファームウェアは
+変更しません。エミュレーターは保護RAM、BASICワーク、属性領域、コードの非破壊を
+検証します。任意のネイティブアプリを実行時に隔離する仕組みではありません。
 
 ## Tests / 検証
 
@@ -174,3 +194,29 @@ the JIS-safe loading symbols and continued input/answers after the screen
 filled. Ten real Gemma turns, ESC exit, resident HELLO/ABORT and TX release
 succeeded with no retransmissions or transport error increase. See the
 [20-row physical record](pc8001-validation-records/2026-10-27-chat-screen20-014.json).
+
+## Classic terminal validation / 新UIの実機確認
+
+The classic fixed-input image is 1743 bytes, CRC16 B9A6. Physical upload,
+RAM verification, EXEC and HELLO/READY with Gemma succeeded on 2026-10-27.
+Visual/input/scroll confirmation is pending; the earlier records above concern
+previous UIs. Automated checks pass: 145 Zig tests, C bridge and five PIO-model
+cases, eight host cases, fourteen deploy cases, eight chat integration cases
+(including a live Ollama run and 15-turn mock), and three bootstrap-media cases.
+Chat tests cover both 20- and 25-row cursor bounds with all four width/color
+settings, fixed VRAM cells and all attribute bytes. Tests use functional CPU/
+8251/CRTC models, not cycle-accurate hardware verification.
+The 30-minute endurance test remains pending by user request.
+
+1. Keep the resident loader waiting; run the setup command with a new log path.
+2. Check title/model, full-width dividers, fixed row-18 prompt and READY/ESC:EXIT.
+3. Ask a short question. Check THINKING/spinner → RECEIVING with progressive text.
+4. Continue at least 15 turns: only rows 2–16 should scroll.
+5. Enter 64 letters; in 40 columns, check the final 38 remain visible. Backspace
+   below 38 and confirm older characters reappear. Submit and verify the reply.
+6. Press ESC/STOP. After the host reports TX released, deploy hello with
+   `zig-out/bin/zig80 deploy zig-out/pc8001/hello.bin --target pc8001 --port
+   /dev/cu.usbmodemXXXX --enable-tx --voltage-confirmed --wait-return`.
+
+新UIの実機確認は旧UIの実績と区別します。RESET・電源操作・TERMは不要です。
+表示を確認できない場合、成功扱いにせずログと画面の状態を記録してください。

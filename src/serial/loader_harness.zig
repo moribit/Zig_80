@@ -27,6 +27,7 @@ pub const Harness = struct {
     vrtc: bool = false,
     cursor_x: u8 = 0,
     cursor_y: u8 = 24,
+    visible_rows: u8 = 25, // Test display geometry; no mode register is changed.
     cursor_enabled: bool = true,
     cursor_phase: u8 = 0,
     cursor_writes: usize = 0,
@@ -168,6 +169,7 @@ pub const Harness = struct {
                 },
                 2 => {
                     self.cursor_y = value & 0x3f;
+                    if (self.cursor_y >= self.visible_rows or self.cursor_x >= 80) self.invalid_crtc_command = true;
                     self.cursor_phase = 0;
                     self.cursor_writes += 1;
                 },
