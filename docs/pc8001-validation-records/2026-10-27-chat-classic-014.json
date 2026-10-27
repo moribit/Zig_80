@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-27",
+  "physical_hardware": true,
+  "implementation_commit": "5ae0e30fd4112a1a75f98a1e0d4dea5cce183070",
+  "target": "original NEC PC-8001",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uart": "300bps, 8N1, inverted",
+  "model": "gemma3:1b",
+  "app": {
+    "source": "examples/pc8001/chat.asm",
+    "bytes": 1743,
+    "sha256": "93dc95c65575f4e5d2027ef3c15edb09125c7597ce4715f94cac735efc154685",
+    "ram_crc16": "B9A6",
+    "code_range": "D000-D6CE",
+    "static_working_storage_bytes": 211,
+    "unallocated_bytes": 94
+  },
+  "layout": {
+    "header": 0,
+    "dividers": [
+      1,
+      17
+    ],
+    "scroll": [
+      2,
+      16
+    ],
+    "input": 18,
+    "status": 19,
+    "prompt_bytes": 64,
+    "input_viewport_40_column_bytes": 38
+  },
+  "user_confirmed": {
+    "input": true,
+    "horizontal_input_scroll": true,
+    "conversation_scroll": true,
+    "escape_pressed": false,
+    "requested_continue_chat": true
+  },
+  "host_observed": {
+    "ram_crc_verified": true,
+    "exec_acknowledged": true,
+    "hello_ready_completed": true,
+    "completed_turns_at_record": 5,
+    "keepalives_at_record": 2305,
+    "max_keepalive_gap_us_at_record": 172405,
+    "session_in_progress": true,
+    "tx_release_not_yet_requested": true
+  },
+  "automated": [
+    "145 Zig tests on 0.16/0.17, Debug and ReleaseSafe",
+    "40/80 columns, monochrome/color, 20/25-row cursor bounds",
+    "15-turn Z80/8251/C Pico bridge/PTY integration, actual fixed VRAM cells and nonzero attributes",
+    "Ollama streaming display before received model DONE",
+    "CRC rejection, retry/duplicate handling and next deploy after return"
+  ],
+  "raw_log": {
+    "path": "zig-out/pc8001/chat-classic-ui.jsonl",
+    "conversation_text_not_included_in_this_record": true,
+    "log_still_growing": true
+  },
+  "pending": [
+    "physical ESC return and subsequent deploy for this UI revision (user continues chatting)",
+    "physical 80-column mode",
+    "30-minute endurance deferred by user"
+  ]
+}

@@ -199,8 +199,11 @@ succeeded with no retransmissions or transport error increase. See the
 
 The classic fixed-input image is 1743 bytes, CRC16 B9A6. Physical upload,
 RAM verification, EXEC and HELLO/READY with Gemma succeeded on 2026-10-27.
-Visual/input/scroll confirmation is pending; the earlier records above concern
-previous UIs. Automated checks pass: 145 Zig tests, C bridge and five PIO-model
+The user confirmed input, horizontal input scrolling and conversation scrolling.
+The session remains running at the user's request; physical ESC return and the
+next deploy for this UI revision are pending. See the
+[classic UI record](pc8001-validation-records/2026-10-27-chat-classic-014.json).
+The earlier records above concern previous UIs. Automated checks pass: 145 Zig tests, C bridge and five PIO-model
 cases, eight host cases, fourteen deploy cases, eight chat integration cases
 (including a live Ollama run and 15-turn mock), and three bootstrap-media cases.
 Chat tests cover both 20- and 25-row cursor bounds with all four width/color
