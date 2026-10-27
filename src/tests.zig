@@ -1,4 +1,7 @@
 test {
+    _ = @import("serial/chat_protocol.zig");
+    _ = @import("serial/chat_text.zig");
+    _ = @import("serial/chat_ollama.zig");
     _ = @import("serial/mini_tests.zig");
     _ = @import("serial/cassette.zig");
     _ = @import("serial/loader_protocol.zig");
