@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
+import re
 import subprocess
 import termios
 import threading
@@ -80,9 +82,29 @@ class ChatTests(unittest.TestCase):
             result = subprocess.run(command(port, '--log', str(log), *extra), capture_output=True, timeout=90 if turns > 2 else 40)
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             self.assertIn(b'Chat ended; TX released.', result.stdout)
+            stages = [b'Assembling chat application', b'Opening Pico USB session',
+                      b'USB connected:', b'Waiting for resident loader', b'Loader detected;',
+                      b'Uploading: 0/', b'Verifying uploaded RAM CRC16', b'RAM CRC16 verified:',
+                      b'Chat application verified and EXEC acknowledged:',
+                      b'Waiting for PC-8001 chat HELLO', b'Chat ready:']
+            positions = [result.stdout.index(stage) for stage in stages]
+            self.assertEqual(positions, sorted(positions))
+            progress = [(int(offset), int(total), int(percent)) for offset, total, percent in
+                        re.findall(rb'Uploading: (\d+)/(\d+) bytes \((\d+)%\)', result.stdout)]
+            self.assertGreater(len(progress), 2)
+            self.assertEqual(progress[0][0], 0)
+            self.assertEqual(progress[-1][0], progress[-1][1])
+            self.assertEqual(progress[-1][2], 100)
+            self.assertEqual([p[0] for p in progress], sorted(set(p[0] for p in progress)))
+            for offset, total, percent in progress:
+                self.assertEqual(total, progress[-1][1])
+                self.assertEqual(percent, offset * 100 // total)
+
             self.assertEqual(result.stdout.count(b'Answer complete:'), turns)
             self.assertEqual(termios.tcgetattr(slave), before)
             events = [json.loads(line) for line in log.read_text().splitlines()]
+            data_acks = [e for e in events if e.get('deploy') == 'ack' and e.get('type') == 3]
+            self.assertEqual(len(progress)-1, len(data_acks), 'only acknowledged blocks advance progress')
             self.assertLessEqual(max(e['count'] for e in events if e.get('event') == 'text_ack'), 8)
             first_text = next(e['host_us'] for e in events if e.get('event') == 'text_ack')
             first_done = next(e['host_us'] for e in events if e.get('event') in ('model_done', 'model_limit'))
@@ -115,6 +137,30 @@ class ChatTests(unittest.TestCase):
                     'display_before_done_received': visible < first_done,
                     'events': events, 'host_output': result.stdout.decode()}, indent=2)+'\n')
             return events
+
+    def test_startup_status_is_flushed_while_loader_is_silent(self):
+        with device(mode='silent') as (port, _, _, _, _, _):
+            proc = subprocess.Popen(command(port, '--mock'), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                output = b''
+                deadline = time.monotonic() + 5
+                while b'Waiting for resident loader' not in output and time.monotonic() < deadline:
+                    readable, _, _ = select.select([proc.stdout], [], [], max(0, deadline-time.monotonic()))
+                    if readable:
+                        data = os.read(proc.stdout.fileno(), 4096)
+                        if not data:
+                            break
+                        output += data
+                self.assertIn(b'Zig_80 Local LLM Chat', output)
+                self.assertIn(b'Assembling chat application', output)
+                self.assertIn(b'Opening Pico USB session', output)
+                self.assertIn(b'Waiting for resident loader', output)
+                self.assertNotIn(b'Loader detected', output)
+                self.assertNotIn(b'Chat ready:', output)
+                self.assertIsNone(proc.poll(), 'status must arrive before loader timeout/exit')
+            finally:
+                proc.send_signal(signal.SIGINT)
+                proc.communicate(timeout=8)
 
     @unittest.skipUnless(LIVE, 'optional real local Ollama model')
     def test_live_ollama(self):

@@ -48,6 +48,25 @@ the host and READY on the PC. Do not enter TERM or rerun USR.
 常駐ローダー待機状態で実行します。アセンブル、CRC付き転送、実行、チャット接続を
 自動で行います。別のアプリが動作中なら先に終了してください。
 
+## Host startup progress / ホストの進捗表示
+
+The CLI immediately flushes its startup messages, including when stdout is
+redirected. It reports assembly, USB connection/configuration, resident loader
+waiting/detection, BEGIN, upload, RAM CRC verification, EXEC acknowledgement,
+and the application HELLO/READY handshake separately. A displayed success means
+that stage has actually completed; READY is not printed during transfer.
+
+300bpsでは起動時転送に約2分かかる場合があります。転送中は受信確認済みの64バイト
+ごとに `Uploading: 64/1743 bytes (3%) elapsed=...s ETA~...s` のように表示します。
+残り時間は実測した転送ペースからの推定であり、再送や検証時間は保証しません。
+再送中は既存のRetry表示が出て、受信確認まで進捗を増やしません。
+ローダー無応答や接続失敗の場合も、直前の表示から待っていた処理を判別できます。
+
+After a submitted question, the host reports the prompt byte count and model
+request before waiting for inference, then reports completion as before. Prompt
+contents are not printed by these status messages. The wire protocol, heartbeat,
+TX lease and PC-8001 application binary are unchanged.
+
 ## Keyboard and display / 操作
 
 * A–Z, digits, space and basic punctuation; SHIFT selects punctuation.

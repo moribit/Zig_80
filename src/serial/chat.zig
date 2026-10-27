@@ -246,6 +246,8 @@ const Bridge = struct {
         self.prompt_ready = false;
         self.prompt_len = 0;
         try self.event("prompt", turn.prompt_len);
+        try self.out.print("Prompt received: {d} bytes. Requesting {s} response from {s}...\n", .{ turn.prompt_len, options.model, if (options.mock) "mock provider" else "Ollama" });
+        try self.out.flush();
         var json: [8192]u8 = undefined;
         const request = try history.request(options.model, turn.prompt[0..turn.prompt_len], &json);
         var http: ?Http = if (options.mock) null else try Http.open(self.channel.session.port.io, options.url, request);
@@ -328,6 +330,8 @@ const Bridge = struct {
         try self.out.flush();
     }
     fn serve(self: *Bridge, allocator: std.mem.Allocator, options: Options) !void {
+        try self.out.writeAll("Waiting for PC-8001 chat HELLO (up to 15s)...\n");
+        try self.out.flush();
         try self.handshake(if (options.mock) "MOCK" else options.model);
         try self.out.print("Chat ready: model={s} provider={s} text_chunk_size={d}; type on PC-8001, ESC/STOP exits\n", .{ options.model, if (options.mock) "mock" else "ollama", options.text_chunk_size });
         try self.event("text_chunk_size", options.text_chunk_size);
@@ -355,6 +359,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         return;
     }
     const options = try parse(args);
+    try out.print("Zig_80 Local LLM Chat\nModel={s} provider={s} port={s}\nAssembling chat application...\n", .{ options.model, if (options.mock) "mock" else "ollama", options.port.? });
+    try out.flush();
     // All assembly and file creation precede ARM.
     var failure: @import("../assembler/assembler.zig").FailureLocation = .{};
     var image = try @import("../assembler/assembler.zig").assembleFile(io, allocator, "examples/pc8001/chat.asm", &failure);
@@ -372,10 +378,14 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8, o
         log_writer.interface.flush() catch {};
         file.close(io);
     };
+    try out.print("Application assembled: {d} bytes.\nOpening Pico USB session; checking firmware and UART...\n", .{image.bytes.items.len});
+    try out.flush();
     var signals = @import("cli.zig").Signals.init();
     defer signals.deinit();
     var channel = try Transport.open(io, options.port.?, out, if (log_file != null) &log_writer.interface else null, 3_000_000);
     defer channel.close();
+    try out.print("USB connected: {s}; UART=300bps/8N1 inverted, TX lease active.\n", .{channel.identity[0..channel.identity_len]});
+    try out.flush();
     if (!options.no_deploy) _ = try @import("deploy.zig").uploadApplication(&channel, image.bytes.items, out);
     var bridge: Bridge = .{ .channel = &channel, .out = out, .session_end = channel.now() + options.session_us };
     bridge.serve(allocator, options) catch |err| {
