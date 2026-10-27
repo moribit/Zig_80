@@ -20,6 +20,26 @@ zig-out/bin/zig80 chat --target pc8001 --port /dev/cu.usbmodemXXXX \
   --log chat-session.jsonl
 ```
 
+On macOS, keep the host awake for the lifetime of the chat process:
+
+```sh
+caffeinate -i zig-out/bin/zig80 chat --target pc8001 --port /dev/cu.usbmodemXXXX \
+  --provider ollama --model gemma4:e2b --enable-tx --voltage-confirmed \
+  --log chat-gemma4-session.jsonl
+```
+
+Download the selected model first (`ollama pull gemma4:e2b`). Model selection
+requires no Z80 or Pico firmware change. `caffeinate` is an optional macOS system
+tool, not a runtime dependency of Zig_80; the assertion ends with the child
+process. It prevents idle system sleep, not deliberate sleep or closing the lid.
+
+MacがスリープするとKEEPALIVEが止まり、Picoは1秒の送信許可を失効させます。
+復帰後も自動的に再ARMしません。PC側にREADYが残っていても接続中とは限りません。
+2026-10-27の実機セッションでは、Macのスリープ復帰と同時刻にNOT_ARMEDで
+ホストが終了し、PCは常駐ローダーへ戻っていました。ローダー応答を確認してから
+新しいchatセッションで再デプロイします。`--no-deploy`で途中状態へ再接続しないでください。
+PicoのリースやHi-Zを緩める方法では対処しません。
+
 Both TX flags are required and do not replace physical checks. Logs must have
 a new filename. The command assembles, uploads, verifies RAM CRC and executes,
 then retains the same leased USB session for chat. Wait for "Chat ready" on
