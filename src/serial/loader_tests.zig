@@ -156,7 +156,7 @@ test "resident rejects invalid ranges entries CRC missing out of order and confl
     try expectStatus(try h.transact(wire.data, 4, &image), 6);
     try std.testing.expectEqual(@as(usize, 0), h.application_entries);
     for (h.bus.memory[0..0xcec0]) |byte| try std.testing.expectEqual(@as(u8, 0xa5), byte);
-    for (h.bus.memory[0xe900..], 0xe900..) |byte, address| if (address != 0xea66 and !(address >= 0xfbe8 and address < 0xfc38 and (address - 0xfbe8) % 2 == 0)) {
+    for (h.bus.memory[0xe900..], 0xe900..) |byte, address| if (address != 0xea66 and !(address >= 0xf300 and address < 0xfeb8 and (address - 0xf300) % 120 < 80)) {
         try std.testing.expectEqual(@as(u8, 0xa5), byte);
     };
 }
@@ -295,7 +295,7 @@ test "resident receiver progress counts only accepted bytes in every width and c
             const row = i / 120;
             const col = i % 120;
             if (row == 19 and col < 80 and col % stride == 0) continue;
-            try std.testing.expectEqual(old, h.bus.memory[0xf300 + i]);
+            try std.testing.expectEqual(if (col < 80) @as(u8, 32) else old, h.bus.memory[0xf300 + i]);
         }
         try std.testing.expectEqual(@as(u8, 0x28 | @as(u8, @intCast(mode))), h.port30);
         try std.testing.expect(!h.invalid_crtc_command);
@@ -326,4 +326,22 @@ test "resident progress handles short partial maximum images and existing RAM ve
         try expectLoadBar(&h, 16, 2);
         try expectStatus(try h.transact(wire.verify, 2, ""), 0);
     }
+}
+
+test "resident clears BASIC and function labels once per BEGIN but never on DATA or duplicate BEGIN" {
+    var h: Harness = undefined;
+    try h.init(std.testing.io, allocator, false, false);
+    @memcpy(h.bus.memory[0xf300..][0..9], "OLD BASIC");
+    @memcpy(h.bus.memory[0xfe40..][0..10], "FUNCTIONS!"); // Row 24 characters.
+    try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+    const image = [_]u8{ 0xc9, 0, 0, 0 };
+    const metadata = beginBytes(0xd000, image.len, 0xd000, wire.crc(&image), false);
+    try expectStatus(try h.transact(wire.begin, 1, &metadata), 0);
+    for ([_]usize{ 0xf300, 0xfe40 }) |start| for (h.bus.memory[start..][0..80]) |byte| try std.testing.expectEqual(@as(u8, 32), byte);
+    h.bus.memory[0xf300] = 'K';
+    h.bus.memory[0xfbe9] = '~'; // Hidden character slot in 40-column mode.
+    try expectStatus(try h.transact(wire.begin, 1, &metadata), 0);
+    try expectStatus(try h.transact(wire.data, 2, &image), 0);
+    try std.testing.expectEqual(@as(u8, 'K'), h.bus.memory[0xf300]);
+    try std.testing.expectEqual(@as(u8, '~'), h.bus.memory[0xfbe9]);
 }

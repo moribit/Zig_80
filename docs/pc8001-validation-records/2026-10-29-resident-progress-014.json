@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-29",
+  "physical_hardware": true,
+  "implementation_commit": "7073efdc18f5ad787924bd329a4cd4b6c19d3616",
+  "target": "original NEC PC-8001",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uart": "300bps, 8N1, inverted",
+  "resident": {
+    "code_bytes": 1234,
+    "transfer_bytes": 1280,
+    "padding_bytes": 46,
+    "padded_crc16": "4D58",
+    "image_sha256": "93a764b550e5bdf127d16d2d24e6b873260239b30a22d0932efabb1acbde3cca",
+    "bar_row_zero_based": 19,
+    "bar_cells": 16,
+    "display_changes": "visible character cells only; 40/80 stride; no attributes or CRTC commands",
+    "new_runtime_state_bytes": 0
+  },
+  "host_observed": {
+    "mini_ready_and_relay_ready": true,
+    "resident_crc_verified": "4D58",
+    "install_retries": 0,
+    "hello_bytes": 44,
+    "hello_crc_verified": "ADC1",
+    "hello_exec_acknowledged": true,
+    "hello_return_value": "00",
+    "hello_returned_to_resident": true,
+    "hello_retries": 0,
+    "tx_released_after_install_and_hello": true,
+    "error_counters_unchanged": "Transport.finish succeeded in both sessions"
+  },
+  "user_confirmed": {
+    "progress_bar_display": true,
+    "hello_display": true,
+    "screen_clean": false,
+    "basic_text_and_function_key_labels_overlap": true
+  },
+  "automated": [
+    "147 Zig tests: 0.17 Debug/ReleaseSafe, 0.16 ReleaseSafe",
+    "all width/color modes, attributes and skipped cells unchanged",
+    "1/44/65/1743/2048-byte images, CRC/sequence rejection and duplicate blocks",
+    "C bridge, 5 PIO tests, 8 host tests, 14 deploy tests, 8 chat tests (live optional skipped), 3 bootstrap-media tests"
+  ],
+  "logs": [
+    {
+      "path": "zig-out/pc8001/resident-progress-20261029-01.jsonl",
+      "sha256": "f1ea58a85f155d0b329d7ccba5cb5bededf8116e790248f98d58f8385395b2d2"
+    },
+    {
+      "path": "zig-out/pc8001/hello-progress-20261029-01.jsonl",
+      "sha256": "1704b92bc48ba9bb7286df2d3bbe4acd5f4c54958a67caf8fbf358d1d7fe3a40"
+    }
+  ],
+  "pending": [
+    "install and visually validate clear-screen correction",
+    "physical 80-column mode"
+  ]
+}

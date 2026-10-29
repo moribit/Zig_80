@@ -27,7 +27,7 @@ helloのRAMデプロイ・実行・画面表示と常駐への復帰も確認済
 | Stage 0モニタ入力 | 666桁の16進数、16byte×20行＋13byte×1行 |
 | モニタの主要入力キー数 | **813**（S＋4桁アドレス＋RETURN、データ、行末RETURN。CLEAR/MON/照合/USRは別） |
 | Stage 0 BASIC | **1,420byteのASCIIテキスト**（32行、CRLF含む）。RETURNを1キーとすると1,388キー＋RUN/RETURN |
-| Stage 1 | **1,234byteのコード**、固定**1,280byte**へゼロ埋め |
+| Stage 1 | **1,257byteのコード**、固定**1,280byte**へゼロ埋め |
 
 30–120byteのStage 0目標には収まっていません。有限待機、8251の完全初期化、CRC16、READY、
 TxEMPTY、BASICのレジスタ/スタック復元、同じ初回導入コードを使う256byte非実行試験を優先しました。
@@ -228,11 +228,11 @@ validation, which requires the operator's confirmed bootstrap and actual results
 
 ## Resident receive progress / 常駐ローダーの受信進捗（2026-10-29）
 
-The resident now contains 1,234 code bytes, still padded to 1,280 bytes at
-D800–DCFF. Its padded CRC16 is **4D58**; the earlier **6BF1** records remain
+The resident now contains 1,257 code bytes, still padded to 1,280 bytes at
+D800–DCFF. Its padded CRC16 is **6068**; the earlier **6BF1** records remain
 historical validation of the 1,134-byte resident. Mini Stage 0 (100 bytes) and
 the relay (333 bytes), their entry addresses and protocols are unchanged.
-No new RAM state is allocated; 46 bytes remain as padding.
+No new RAM state is allocated; 23 bytes remain as padding.
 
 PC-8001の表示上の19行目（0始まり、20行画面の最下段）に次の形式で表示します。
 
@@ -246,10 +246,13 @@ LOAD [########........]
 なので最初から満杯です。**満杯は全体CRC検証やEXEC成功を意味しません。**
 VERIFY/EXECの条件は従来どおりで、ホスト側の成功表示を確認してください。
 
-The routine updates only visible character cells on row 19. It detects the
-existing 40/80-column stride from EA66h, preserves skipped cells and all
-attributes, and writes no display/UART registers. Other rows are untouched.
-It runs between validated DATA frames, before ACK; there is no per-byte redraw.
+On each new, validated BEGIN, all 25 rows of character data are cleared,
+including hidden character slots in 40-column mode. Attribute bytes are skipped.
+This removes old BASIC/monitor text and function-key labels, without changing
+video mode or writing display/UART registers. Duplicate BEGIN never clears again.
+DATA updates only visible cells on row 19, using the existing 40/80 stride from
+EA66h; other rows and hidden slots are preserved during these updates. Rendering
+runs before ACK between frames, never for each incoming byte.
 Applications may overwrite the row normally after EXEC. No automatic screen
 restoration or new keyboard command is introduced.
 
@@ -261,5 +264,8 @@ restoration or new keyboard command is introduced.
 
 Automated checks cover all width/color combinations, short and maximum 2KB
 images, partial blocks, retransmission/rejection, existing-RAM verification,
-VRAM attributes/skipped cells, resident-code integrity and EXEC/RET. Physical
-validation of this revision is pending until the operator installs it.
+VRAM attributes/skipped cells, resident-code integrity and EXEC/RET. The initial 1,234-byte progress revision (CRC 4D58) installed and executed hello
+successfully on the physical PC. The operator reported that its retained BASIC
+text and function-key labels overlapped the output. This 1,257-byte revision
+adds a once-per-BEGIN clear; physical validation of the correction is pending.
+See the [initial progress record](pc8001-validation-records/2026-10-29-resident-progress-014.json).

@@ -214,6 +214,7 @@ begin_offset:
     ld (VALUE),hl
     ld a,1
     ld (ACTIVE),a
+    call clear_transfer_screen
     call load_progress
     jp accept
 data_block:
@@ -488,6 +489,22 @@ crc_range_byte:
     ld a,b
     or c
     jr nz,crc_range_byte
+    ret
+; Once per accepted BEGIN: remove old BASIC/function-key/application text.
+; Clear all 25 character rows (also safe on a 20-row screen), skip attributes.
+clear_transfer_screen:
+    ld hl,0xf300
+    ld c,25
+transfer_clear_row:
+    ld b,80
+transfer_clear_cell:
+    ld (hl),32
+    inc hl
+    djnz transfer_clear_cell
+    ld de,40
+    add hl,de
+    dec c
+    jr nz,transfer_clear_row
     ret
 ; LOAD bar is RAM availability, not proof of whole-image CRC or execution.
 ; BEGIN/DATA only, after validation/write; retransmitted blocks never redraw.

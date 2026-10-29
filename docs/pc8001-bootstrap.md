@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 新Stage 0 | mini_stage0.asm / mini-stage0.* | 100 B、E300–E363 |
 | 中継Stage 1 | stage0.asm / relay-stage1.* | 333 B、E400–E54C |
-| 常駐ローダー | stage1.asm / stage1.bin | 1,234 B、転送時1,280 B、D800–DCFF |
+| 常駐ローダー | stage1.asm / stage1.bin | 1,257 B、転送時1,280 B、D800–DCFF |
 
 互換性のため旧ファイル名と `--loader stage0`（333 B）、`--loader stage1`（常駐）は維持します。
 333 BのSHA-256は `914b95198822e10778dbc96a3af25ee9dd5f3c606140f58da79c7db071285258` のままです。
