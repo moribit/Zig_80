@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-29",
+  "physical_hardware": true,
+  "implementation_commit": "0d925a3",
+  "target": "original NEC PC-8001",
+  "firmware": "pico2-pc8001/0.1.4",
+  "uart": "300bps, 8N1, inverted",
+  "resident": {
+    "code_bytes": 1257,
+    "transfer_bytes": 1280,
+    "padding_bytes": 23,
+    "padded_crc16": "6068",
+    "image_sha256": "78e979a3fec16cf952ed07c776b8257b4b5673452896e8a50d46a938e5c03e1c",
+    "bar_row_zero_based": 19,
+    "bar_cells": 16,
+    "display_changes": "clear all 25 character rows once per accepted BEGIN; DATA updates row 19 only; all attributes and display/UART modes preserved",
+    "new_runtime_state_bytes": 0
+  },
+  "host_observed": {
+    "mini_ready_and_relay_ready": true,
+    "resident_crc_verified": "6068",
+    "install_retries": 0,
+    "hello_bytes": 44,
+    "hello_crc_verified": "ADC1",
+    "hello_exec_acknowledged": true,
+    "hello_return_value": "00",
+    "hello_returned_to_resident": true,
+    "hello_retries": 0,
+    "tx_released_after_install_and_hello": true,
+    "error_counters_unchanged": "Transport.finish succeeded in both sessions"
+  },
+  "user_confirmed": {
+    "screen_clean": true,
+    "progress_bar_display": true,
+    "hello_display": true,
+    "no_basic_or_function_key_overlap": true
+  },
+  "automated": [
+    "148 Zig tests: 0.17 Debug/ReleaseSafe, 0.16 ReleaseSafe",
+    "all width/color modes, attributes and skipped cells unchanged",
+    "1/44/65/1743/2048-byte images, CRC/sequence rejection and duplicate blocks",
+    "C bridge, 5 PIO tests, 8 host tests, 14 deploy tests, 8 chat tests (live optional skipped), 3 bootstrap-media tests",
+    "BASIC text and row-24 function labels cleared; duplicate BEGIN and DATA never clear again"
+  ],
+  "logs": [
+    {
+      "path": "zig-out/pc8001/resident-clear-20261029-01.jsonl",
+      "sha256": "954596ed25056e74545155e0f212d716d554614a006a4180d01d5cc393401570"
+    },
+    {
+      "path": "zig-out/pc8001/hello-clear-20261029-01.jsonl",
+      "sha256": "dcf1740b8478cf81dd0b2d6471b6eccdfeee634f8ac86aaac6e4dc889562f29b"
+    }
+  ],
+  "pending": [
+    "physical 80-column mode"
+  ],
+  "correction_for": "2026-10-29-resident-progress-014.json: stale BASIC/function-key text overlapped hello and bar"
+}

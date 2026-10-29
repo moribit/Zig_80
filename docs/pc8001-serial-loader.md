@@ -267,5 +267,9 @@ images, partial blocks, retransmission/rejection, existing-RAM verification,
 VRAM attributes/skipped cells, resident-code integrity and EXEC/RET. The initial 1,234-byte progress revision (CRC 4D58) installed and executed hello
 successfully on the physical PC. The operator reported that its retained BASIC
 text and function-key labels overlapped the output. This 1,257-byte revision
-adds a once-per-BEGIN clear; physical validation of the correction is pending.
+adds a once-per-BEGIN clear. Physical installation verified CRC 6068, then hello
+upload/CRC/EXEC/RET succeeded without retries. The operator confirmed a clean
+screen with both HELLO and the completed bar, without BASIC/function-key overlap.
+See the [clear-screen physical record](pc8001-validation-records/2026-10-29-resident-clear-014.json).
+Physical 80-column validation remains pending.
 See the [initial progress record](pc8001-validation-records/2026-10-29-resident-progress-014.json).
