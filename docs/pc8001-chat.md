@@ -48,6 +48,26 @@ the host and READY on the PC. Do not enter TERM or rerun USR.
 常駐ローダー待機状態で実行します。アセンブル、CRC付き転送、実行、チャット接続を
 自動で行います。別のアプリが動作中なら先に終了してください。
 
+## BASIC function-key display / ファンクションキー表示
+
+文字領域をクリアしても、BASICのファンクションキー表示がチャット入力欄より下に
+残る実機報告がありました。2026-10-29の実機では、導入前にBASICで次を実行し、
+mini Stage 0から常駐・チャットを再導入すると、非表示と正常な入力・回答を確認できました。
+
+```text
+CONSOLE,,0
+```
+
+必要な場合は、BASICのOK状態で、DEFUSR/USRによる導入前に実行してください。
+チャット中に入力するコマンドではありません。Zig_80はこのBASIC設定を自動で変更せず、
+未確認のROMルーチンも呼び出しません。表示が残った根本経路は未確定です。
+
+On the physical PC, the operator confirmed that disabling BASIC's function-key
+labels with `CONSOLE,,0` before bootstrap removed the remaining labels. This is
+separate from clearing VRAM character cells; after reinstallation the Gemma 4
+chat display, input and response were confirmed normal. This observation does
+not establish why the labels survived the prior character-only clear.
+
 ## Host startup progress / ホストの進捗表示
 
 The CLI immediately flushes its startup messages, including when stdout is

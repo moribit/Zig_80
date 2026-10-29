@@ -273,3 +273,12 @@ screen with both HELLO and the completed bar, without BASIC/function-key overlap
 See the [clear-screen physical record](pc8001-validation-records/2026-10-29-resident-clear-014.json).
 Physical 80-column validation remains pending.
 See the [initial progress record](pc8001-validation-records/2026-10-29-resident-progress-014.json).
+
+### Function-key labels after starting chat / チャット起動後の補足
+
+After the clean hello confirmation, the operator reported BASIC function-key
+labels below the chat input. On 2026-10-29, `CONSOLE,,0` in BASIC before bootstrap,
+followed by resident CRC6068 and chat CRCB9A6 installation, was confirmed to remove
+the labels with working Gemma 4 input/response. Character clearing alone should
+not be described as disabling BASIC's function-key display setting. See the
+[chat setup note](pc8001-chat.md#basic-function-key-display--ファンクションキー表示).
