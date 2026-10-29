@@ -214,6 +214,7 @@ begin_offset:
     ld (VALUE),hl
     ld a,1
     ld (ACTIVE),a
+    call load_progress
     jp accept
 data_block:
     ld a,(ACTIVE)
@@ -245,6 +246,7 @@ data_in_range:
     ld (OFFSET),hl
     xor a
     ld (VERIFIED),a
+    call load_progress
     jp accept
 verify_image:
     ld a,(FRAME+3)
@@ -487,6 +489,69 @@ crc_range_byte:
     or c
     jr nz,crc_range_byte
     ret
+; LOAD bar is RAM availability, not proof of whole-image CRC or execution.
+; BEGIN/DATA only, after validation/write; retransmitted blocks never redraw.
+; 16 cells = floor(OFFSET * 16 / IMAGE_SIZE), bounded by the validated 2KB.
+; Character cells on visible row 19 only. No attribute, CRTC or UART changes.
+load_progress:
+    ld hl,(OFFSET)
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,(IMAGE_SIZE)
+    ld b,0
+progress_divide:
+    or a
+    sbc hl,de
+    jr c,progress_counted
+    inc b
+    jr progress_divide
+progress_counted:
+    ld a,b
+    push af
+    ld bc,0x5001 ; 80 visible cells, stride 1.
+    ld a,(0xea66)
+    and 1
+    jr nz,progress_width
+    ld bc,0x2802 ; 40 visible cells, stride 2; skipped cells are preserved.
+progress_width:
+    ld de,0xfbe8
+progress_clear:
+    ld a,32
+    call progress_put
+    djnz progress_clear
+    ld de,0xfbe8
+    ld hl,progress_title
+    ld b,6
+progress_label:
+    ld a,(hl)
+    inc hl
+    call progress_put
+    djnz progress_label
+    pop af
+    ld h,a
+    ld b,16
+progress_bar:
+    ld a,h
+    or a
+    ld a,46
+    jr z,progress_cell
+    dec h
+    ld a,35
+progress_cell:
+    call progress_put
+    djnz progress_bar
+    ld a,93
+progress_put:
+    ld (de),a
+    inc de
+    bit 0,c
+    ret nz
+    inc de
+    ret
+progress_title:
+    db "LOAD ["
 include "crc.inc"
 include "uart.inc"
 stage1_end:

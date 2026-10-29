@@ -156,7 +156,7 @@ test "resident rejects invalid ranges entries CRC missing out of order and confl
     try expectStatus(try h.transact(wire.data, 4, &image), 6);
     try std.testing.expectEqual(@as(usize, 0), h.application_entries);
     for (h.bus.memory[0..0xcec0]) |byte| try std.testing.expectEqual(@as(u8, 0xa5), byte);
-    for (h.bus.memory[0xe900..], 0xe900..) |byte, address| if (address != 0xea66) {
+    for (h.bus.memory[0xe900..], 0xe900..) |byte, address| if (address != 0xea66 and !(address >= 0xfbe8 and address < 0xfc38 and (address - 0xfbe8) % 2 == 0)) {
         try std.testing.expectEqual(@as(u8, 0xa5), byte);
     };
 }
@@ -231,11 +231,12 @@ test "hello respects 40 and 80 column character stride without changing attribut
         try expectStatus(try h.transact(wire.begin, 1, &beginBytes(wire.app_min, @intCast(image.bytes.items.len), wire.app_min, wire.crc(image.bytes.items), false)), 0);
         try expectStatus(try h.transact(wire.data, 2, image.bytes.items), 0);
         try expectStatus(try h.transact(wire.verify, 3, ""), 0);
+        const screen_before = h.bus.memory[0xf300..0xfeb8].*;
         try expectStatus(try h.transact(wire.exec, 4, ""), 0);
         try h.steps(20000);
         const stride: usize = if (width80 == 1) 1 else 2;
         for (h.bus.memory[0xf300..0xfeb8], 0..) |byte, i| {
-            const expected: u8 = if (i % stride == 0 and i / stride < message.len) message[i / stride] else 0xa5;
+            const expected: u8 = if (i % stride == 0 and i / stride < message.len) message[i / stride] else screen_before[i];
             try std.testing.expectEqual(expected, byte);
         }
         try std.testing.expectEqual(@as(u8, 0x2a | width80), h.port30);
@@ -247,5 +248,82 @@ test "hello respects 40 and 80 column character stride without changing attribut
             if (frame.kind == 0x82) returned_mode = frame.bytes[6];
         };
         try std.testing.expectEqual(width80, returned_mode.?);
+    }
+}
+
+fn expectLoadBar(h: *Harness, filled: usize, stride: usize) !void {
+    const label = "LOAD [";
+    for (0..80 / stride) |col| {
+        const expected: u8 = if (col < label.len) label[col] else if (col < label.len + 16) (if (col - label.len < filled) '#' else '.') else if (col == label.len + 16) ']' else ' ';
+        try std.testing.expectEqual(expected, h.bus.memory[0xfbe8 + col * stride]);
+    }
+}
+
+test "resident receiver progress counts only accepted bytes in every width and color mode" {
+    for (0..4) |mode| {
+        var h: Harness = undefined;
+        try h.init(std.testing.io, allocator, false, false);
+        h.bus.memory[0xea66] = 0x28 | @as(u8, @intCast(mode));
+        const stride: usize = if (mode & 1 == 0) 2 else 1;
+        const screen = h.bus.memory[0xf300..0xfeb8].*;
+        const resident = h.bus.memory[wire.stage1_address..][0..wire.stage1_size].*;
+        var image: [128]u8 = @splat(0);
+        image[0] = 0xc9;
+        try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+        try expectStatus(try h.transact(wire.begin, 1, &beginBytes(0xd000, image.len, 0xd000, wire.crc(&image), false)), 0);
+        try expectLoadBar(&h, 0, stride);
+        try expectStatus(try h.transact(wire.data, 2, image[0..64]), 0);
+        try expectLoadBar(&h, 8, stride);
+        try expectStatus(try h.transact(wire.data, 2, image[0..64]), 0);
+        try expectLoadBar(&h, 8, stride);
+        var buffer: [wire.max_frame]u8 = undefined;
+        const bad = try wire.encode(&buffer, wire.data, 3, image[64..]);
+        buffer[bad.len - 1] ^= 1;
+        try expectStatus(try h.exchange(bad), 1);
+        try expectLoadBar(&h, 8, stride);
+        try expectStatus(try h.transact(wire.data, 4, image[64..]), 5);
+        try expectLoadBar(&h, 8, stride);
+        try expectStatus(try h.transact(wire.data, 3, image[64..]), 0);
+        try expectLoadBar(&h, 16, stride);
+        try expectStatus(try h.transact(wire.verify, 4, ""), 0);
+        try expectStatus(try h.transact(wire.exec, 5, ""), 0);
+        try h.steps(10000);
+        try std.testing.expectEqual(@as(usize, 1), h.application_entries);
+        try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+        try std.testing.expectEqualSlices(u8, &resident, h.bus.memory[wire.stage1_address..][0..wire.stage1_size]);
+        for (screen, 0..) |old, i| {
+            const row = i / 120;
+            const col = i % 120;
+            if (row == 19 and col < 80 and col % stride == 0) continue;
+            try std.testing.expectEqual(old, h.bus.memory[0xf300 + i]);
+        }
+        try std.testing.expectEqual(@as(u8, 0x28 | @as(u8, @intCast(mode))), h.port30);
+        try std.testing.expect(!h.invalid_crtc_command);
+        try std.testing.expect(h.cpu.registers.sp >= 0xe700 and h.cpu.registers.sp <= 0xe800);
+    }
+}
+
+test "resident progress handles short partial maximum images and existing RAM verification" {
+    for ([_]usize{ 1, 44, 65, 1743, 2048 }) |size| {
+        var h: Harness = undefined;
+        try h.init(std.testing.io, allocator, false, false);
+        const image: [2048]u8 = @splat(0);
+        const metadata = beginBytes(0xd000, @intCast(size), 0xd000, wire.crc(image[0..size]), false);
+        try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+        try expectStatus(try h.transact(wire.begin, 1, &metadata), 0);
+        var offset: usize = 0;
+        var seq: u8 = 2;
+        while (offset < size) {
+            const end = @min(offset + 64, size);
+            try expectStatus(try h.transact(wire.data, seq, image[offset..end]), 0);
+            offset = end;
+            try expectLoadBar(&h, offset * 16 / size, 2);
+            seq += 1;
+        }
+        try expectStatus(try h.transact(wire.verify, seq, ""), 0);
+        try expectStatus(try h.transact(wire.hello, 0, ""), 0);
+        try expectStatus(try h.transact(wire.begin, 1, &beginBytes(0xd000, @intCast(size), 0xd000, wire.crc(image[0..size]), true)), 0);
+        try expectLoadBar(&h, 16, 2);
+        try expectStatus(try h.transact(wire.verify, 2, ""), 0);
     }
 }

@@ -27,7 +27,7 @@ helloのRAMデプロイ・実行・画面表示と常駐への復帰も確認済
 | Stage 0モニタ入力 | 666桁の16進数、16byte×20行＋13byte×1行 |
 | モニタの主要入力キー数 | **813**（S＋4桁アドレス＋RETURN、データ、行末RETURN。CLEAR/MON/照合/USRは別） |
 | Stage 0 BASIC | **1,420byteのASCIIテキスト**（32行、CRLF含む）。RETURNを1キーとすると1,388キー＋RUN/RETURN |
-| Stage 1 | **1,134byteのコード**、固定**1,280byte**へゼロ埋め |
+| Stage 1 | **1,234byteのコード**、固定**1,280byte**へゼロ埋め |
 
 30–120byteのStage 0目標には収まっていません。有限待機、8251の完全初期化、CRC16、READY、
 TxEMPTY、BASICのレジスタ/スタック復元、同じ初回導入コードを使う256byte非実行試験を優先しました。
@@ -225,3 +225,41 @@ deploys need no cassette or manual USR while the resident loader survives. Uploa
 RAM CRC verification and explicit EXEC are separate. Applications can RET or use
 D803 to re-enter the loader. All software tests are distinct from physical loader
 validation, which requires the operator's confirmed bootstrap and actual results.
+
+## Resident receive progress / 常駐ローダーの受信進捗（2026-10-29）
+
+The resident now contains 1,234 code bytes, still padded to 1,280 bytes at
+D800–DCFF. Its padded CRC16 is **4D58**; the earlier **6BF1** records remain
+historical validation of the 1,134-byte resident. Mini Stage 0 (100 bytes) and
+the relay (333 bytes), their entry addresses and protocols are unchanged.
+No new RAM state is allocated; 46 bytes remain as padding.
+
+PC-8001の表示上の19行目（0始まり、20行画面の最下段）に次の形式で表示します。
+
+```text
+LOAD [########........]
+```
+
+16区画は `floor(OFFSET * 16 / IMAGE_SIZE)`。有効なBEGINで初期化し、CRCと範囲・
+シーケンスを検証してRAMへ書き込んだDATAだけで更新します。同じブロックの再送、
+不正CRC・順序違反は進捗を増やしません。verify-onlyでは既存RAMの範囲がロード済み
+なので最初から満杯です。**満杯は全体CRC検証やEXEC成功を意味しません。**
+VERIFY/EXECの条件は従来どおりで、ホスト側の成功表示を確認してください。
+
+The routine updates only visible character cells on row 19. It detects the
+existing 40/80-column stride from EA66h, preserves skipped cells and all
+attributes, and writes no display/UART registers. Other rows are untouched.
+It runs between validated DATA frames, before ACK; there is no per-byte redraw.
+Applications may overwrite the row normally after EXEC. No automatic screen
+restoration or new keyboard command is introduced.
+
+導入には、現在のアプリを終了後、RESETでBASICへ戻り、E300–E363の100バイトを
+照合してDEFUSR0を定義します。ホストで `deploy resident --loader mini` を先に
+起動し、受信待ち表示の後でUSRを実行します。常駐導入そのものはmini/中継側が
+担当するため、この新バーはまだ表示しません。導入後のhelloやchatの転送で確認します。
+更新版を導入するまで、既にRAM上で動作している旧ローダーの表示は変わりません。
+
+Automated checks cover all width/color combinations, short and maximum 2KB
+images, partial blocks, retransmission/rejection, existing-RAM verification,
+VRAM attributes/skipped cells, resident-code integrity and EXEC/RET. Physical
+validation of this revision is pending until the operator installs it.
